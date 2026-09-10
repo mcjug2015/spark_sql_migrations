@@ -36,7 +36,7 @@ Pick exactly one flavour. `databricks-connect` ships its own top-level `pyspark/
 both.
 
 Until the first PyPI release, consume the wheel built by CI (the `dist` artifact on any
-green run) or build it yourself with `pants package radmantha:dist`.
+green run) or build it yourself with `pants package //:dist`.
 
 ## The two kinds of migration
 
@@ -162,10 +162,10 @@ Built with [Pants](https://www.pantsbuild.org/). Two resolves: `python-default` 
 library, `py-reqs-dev` for tests.
 
 ```bash
-pants fmt lint check radmantha/ radmantha_test/          # black, isort, flake8, mypy
-pants test --use-coverage radmantha_test/:: -radmantha_test/integration::   # unit
-pants test radmantha_test/integration::                  # integration, separate invocation
-pants package radmantha:dist                             # wheel + sdist
+pants fmt lint check radmantha/ radmantha_test/                            # black, isort, flake8, mypy
+pants test --use-coverage radmantha_test/:: -radmantha_test/integration::  # unit
+pants test radmantha_test/integration::                                    # integration, separate invocation
+pants package //:dist                                                      # wheel + sdist
 ```
 
 `scripts/run_local.sh` runs everything CI runs, including building the distribution and

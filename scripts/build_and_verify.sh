@@ -21,7 +21,7 @@ if ! command -v "$VERIFY_PYTHON" >/dev/null; then
 fi
 
 rm -f dist/radmantha-*.whl dist/radmantha-*.tar.gz
-pants package radmantha:dist
+pants package //:dist
 
 wheel="$(ls dist/radmantha-*.whl)"
 echo "built ${wheel}"

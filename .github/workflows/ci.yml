@@ -151,7 +151,7 @@ jobs:
       # so can never coexist with the other flavour.
       - name: Build distribution
         run: |
-          pants package radmantha:dist
+          pants package //:dist
 
       - name: Report distribution metadata
         id: dist
