@@ -1,3 +1,10 @@
+# Action versions are the lowest major that actually runs on node24, which is
+# what clears the Node 20 deprecation -- not simply the newest major. The two
+# artifact actions are why the numbers look uneven: upload-artifact@v5 and
+# download-artifact@v5/v6 are still node20, so they had to go to v6 and v7.
+# Deliberately NOT download-artifact@v8: it stops unconditionally unzipping and
+# switches on the Content-Type header instead, a behaviour change this workflow
+# has no need for. All of these require Actions Runner >= 2.327.1.
 name: CI
 
 on:
@@ -17,18 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # pants.toml pins interpreter_constraints to ==3.12.*, and
       # [python-bootstrap] search_path includes "<PATH>", so Pants finds this one.
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       # pyspark 4.1 needs a modern JVM; the integration tests run embedded Spark.
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -40,7 +47,7 @@ jobs:
           echo "PANTS_LOCAL_STORE_DIR=$HOME/.cache/pants/lmdb_store" >> "$GITHUB_ENV"
 
       - name: Cache Pants
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/pants/named_caches
@@ -109,10 +116,10 @@ jobs:
       version: ${{ steps.dist.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -123,7 +130,7 @@ jobs:
           echo "PANTS_LOCAL_STORE_DIR=$HOME/.cache/pants/lmdb_store" >> "$GITHUB_ENV"
 
       - name: Cache Pants
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/pants/named_caches
@@ -180,7 +187,7 @@ jobs:
           EOF
 
       - name: Upload distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: |
@@ -203,17 +210,17 @@ jobs:
             extra: "[databricks]"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # databricks-connect is Requires-Python ==3.12.*; keep all three flavours
       # on the same interpreter so the comparison is honest.
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Download distribution
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist
@@ -238,7 +245,7 @@ jobs:
       id-token: write
     steps:
       - name: Download distribution
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist
@@ -257,7 +264,7 @@ jobs:
       id-token: write
     steps:
       - name: Download distribution
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist
