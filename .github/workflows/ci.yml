@@ -57,7 +57,7 @@ jobs:
           if ! command -v pants >/dev/null; then
             curl --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
               --retry-all-errors --create-dirs -fsSLo "$RUNNER_TEMP/get-pants.sh" \
-              https://raw.githubusercontent.com/pantsbuild/setup/main/get-pants.sh
+              https://static.pantsbuild.org/setup/get-pants.sh
             bash "$RUNNER_TEMP/get-pants.sh"
           fi
           pants --version
@@ -140,7 +140,7 @@ jobs:
           if ! command -v pants >/dev/null; then
             curl --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
               --retry-all-errors --create-dirs -fsSLo "$RUNNER_TEMP/get-pants.sh" \
-              https://raw.githubusercontent.com/pantsbuild/setup/main/get-pants.sh
+              https://static.pantsbuild.org/setup/get-pants.sh
             bash "$RUNNER_TEMP/get-pants.sh"
           fi
           pants --version
