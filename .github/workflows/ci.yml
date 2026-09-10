@@ -1,0 +1,279 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish_testpypi:
+        description: "Publish the built distribution to TestPyPI"
+        type: boolean
+        default: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # pants.toml pins interpreter_constraints to ==3.12.*, and
+      # [python-bootstrap] search_path includes "<PATH>", so Pants finds this one.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # pyspark 4.1 needs a modern JVM; the integration tests run embedded Spark.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configure Pants caches
+        shell: bash
+        run: |
+          echo "PANTS_NAMED_CACHES_DIR=$HOME/.cache/pants/named_caches" >> "$GITHUB_ENV"
+          echo "PANTS_LOCAL_STORE_DIR=$HOME/.cache/pants/lmdb_store" >> "$GITHUB_ENV"
+
+      - name: Cache Pants
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pants/named_caches
+            ~/.cache/pants/lmdb_store
+            ~/.cache/nce
+          key: pants-${{ runner.os }}-${{ hashFiles('radmantha/python-default.lock', 'radmantha_test/python-dev.lock', 'pants.toml') }}
+          restore-keys: pants-${{ runner.os }}-
+
+      - name: Install Pants
+        shell: bash
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v pants >/dev/null; then
+            curl --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+              --retry-all-errors --create-dirs -fsSLo "$RUNNER_TEMP/get-pants.sh" \
+              https://raw.githubusercontent.com/pantsbuild/setup/main/get-pants.sh
+            bash "$RUNNER_TEMP/get-pants.sh"
+          fi
+          pants --version
+
+      # Deliberately NOT `pants generate-lockfiles`: the lockfiles are committed,
+      # and regenerating here would hide drift between them and the requirements
+      # files. Pants fails loudly if they are stale, which is the wanted signal.
+      - name: Validate autoformat and types
+        run: |
+          pants lint check radmantha/ radmantha_test/
+
+      - name: Prepare pytest tmp dir
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.cache/pytest-tmp"
+          echo "PYTEST_TMP_BASE=$HOME/.cache/pytest-tmp" >> "$GITHUB_ENV"
+
+      - name: Run unit tests
+        run: |
+          rm -rf dist/test/reports
+          pants test --output=all --test-force --use-coverage --report radmantha_test/:: -radmantha_test/integration::
+
+      - name: Run integration tests
+        # Runs after unit tests complete, as its own pants invocation, never fanned out
+        # alongside them. Integration tests aren't covered by --use-coverage: coverage
+        # only comes from unit tests (see CLAUDE.md "Laws of integration testing").
+        run: |
+          pants test --output=all --test-force --report radmantha_test/integration::
+
+      - name: Enforce minimum test count
+        run: |
+          python - <<'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+          total = 0
+          for f in glob.glob("dist/test/reports/*.xml"):
+              root = ET.parse(f).getroot()
+              for ts in root.iter("testsuite"):
+                  total += int(ts.get("tests", 0)) - int(ts.get("skipped", 0))
+          print(f"Total tests run: {total}")
+          if total < 1:
+              print("::error::Fewer than 1 tests were run", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.dist.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure Pants caches
+        shell: bash
+        run: |
+          echo "PANTS_NAMED_CACHES_DIR=$HOME/.cache/pants/named_caches" >> "$GITHUB_ENV"
+          echo "PANTS_LOCAL_STORE_DIR=$HOME/.cache/pants/lmdb_store" >> "$GITHUB_ENV"
+
+      - name: Cache Pants
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pants/named_caches
+            ~/.cache/pants/lmdb_store
+            ~/.cache/nce
+          key: pants-${{ runner.os }}-${{ hashFiles('radmantha/python-default.lock', 'radmantha_test/python-dev.lock', 'pants.toml') }}
+          restore-keys: pants-${{ runner.os }}-
+
+      - name: Install Pants
+        shell: bash
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          if ! command -v pants >/dev/null; then
+            curl --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 \
+              --retry-all-errors --create-dirs -fsSLo "$RUNNER_TEMP/get-pants.sh" \
+              https://raw.githubusercontent.com/pantsbuild/setup/main/get-pants.sh
+            bash "$RUNNER_TEMP/get-pants.sh"
+          fi
+          pants --version
+
+      # One distribution, three install flavours. `radmantha` pulls no Spark at
+      # all; [local] adds pyspark + delta-spark; [databricks] adds
+      # databricks-connect, which ships its own top-level pyspark/ and delta/ and
+      # so can never coexist with the other flavour.
+      - name: Build distribution
+        run: |
+          pants package radmantha:dist
+
+      - name: Report distribution metadata
+        id: dist
+        shell: bash
+        run: |
+          wheel="$(ls dist/radmantha-*.whl)"
+          version="$(python - "$wheel" <<'EOF'
+          import sys, zipfile
+          root = zipfile.Path(zipfile.ZipFile(sys.argv[1]))
+          info = next(p for p in root.iterdir() if p.name.endswith(".dist-info"))
+          for line in (info / "METADATA").read_text().splitlines():
+              if line.startswith("Version:"):
+                  print(line.split(":", 1)[1].strip())
+                  break
+          EOF
+          )"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "built radmantha ${version}"
+          python - "$wheel" <<'EOF'
+          import sys, zipfile
+          root = zipfile.Path(zipfile.ZipFile(sys.argv[1]))
+          info = next(p for p in root.iterdir() if p.name.endswith(".dist-info"))
+          for line in (info / "METADATA").read_text().splitlines():
+              if line.startswith(("Name:", "Version:", "Requires-Python:", "Requires-Dist:", "Provides-Extra:")):
+                  print("  " + line)
+          EOF
+
+      - name: Upload distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  verify-install:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavour: bare
+            extra: ""
+          - flavour: local
+            extra: "[local]"
+          - flavour: databricks
+            extra: "[databricks]"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # databricks-connect is Requires-Python ==3.12.*; keep all three flavours
+      # on the same interpreter so the comparison is honest.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Install radmantha${{ matrix.extra }}
+        shell: bash
+        run: |
+          wheel="$(ls dist/radmantha-*.whl)"
+          python -m pip install --upgrade pip
+          python -m pip install "${wheel}${{ matrix.extra }}"
+
+      - name: Import check
+        shell: bash
+        run: python scripts/verify_install.py "${{ matrix.flavour }}"
+
+  publish-testpypi:
+    needs: verify-install
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_testpypi
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    needs: verify-install
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # PyPI versions are immutable, so a tag that disagrees with the version in
+      # radmantha/BUILD must stop the release rather than publish the wrong one.
+      - name: Check tag matches built version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built="${{ needs.build.outputs.version }}"
+          if [ "$tag" != "$built" ]; then
+            echo "::error::release tag ${GITHUB_REF_NAME} does not match built version ${built}"
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches built version ${built}"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

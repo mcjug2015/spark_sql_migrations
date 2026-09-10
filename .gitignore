@@ -1,0 +1,12 @@
+/.pants.d/
+/.project
+/.pydevproject
+/dist/
+/.mypy_cache/
+/.pytest_cache/
+/local_log.log
+/migrations_out/
+/test_migrations_out/
+/spark-warehouse/
+__pycache__/
+*.pyc

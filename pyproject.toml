@@ -1,0 +1,24 @@
+[tool.black]
+line-length = 120
+
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
+
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+
+[tool.coverage.run]
+branch = true
+
+
+[tool.coverage.report]
+exclude_also = [
+    "@(abc\\.)?abstractmethod",
+    "def __init__\\(.*\\):\\s*\\S",
+    "def get_\\w*\\(.*\\):\\s*\\S",
+]

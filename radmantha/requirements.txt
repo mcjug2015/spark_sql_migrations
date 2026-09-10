@@ -1,0 +1,9 @@
+# Runtime deps of the published wheel. Ranges, not pins: these strings become
+# the distribution's install_requires.
+Jinja2>=3.1,<4
+
+# Present so mypy and Pants' dependency inference can resolve `pyspark` and
+# `delta` while working in this repo. Excluded from the wheel in the
+# python_distribution below -- see the comment there.
+pyspark[connect]>=4.0,<5
+delta-spark>=4.0,<5

@@ -1,0 +1,9 @@
+black==24.10.0
+flake8==7.3.0
+isort==8.0.1
+mypy==2.0.0
+pyspark[connect]==4.1.0
+delta-spark==4.3.1
+Jinja2==3.1.6
+pytest==8.4.2
+freezegun==1.5.5

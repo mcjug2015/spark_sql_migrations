@@ -1,0 +1,4 @@
+[flake8]
+max-line-length=120
+# E203 contradicts black on slices like ordered[index + 1 :]; black follows pep8 here.
+extend-ignore=E203
