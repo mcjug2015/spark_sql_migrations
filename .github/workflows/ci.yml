@@ -259,7 +259,11 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
-    needs: verify-install
+    # `build` is needed for its version output, not for ordering (verify-install
+    # already depends on it). needs.<job> is only in scope for jobs named here, so
+    # dropping it makes needs.build.outputs.version silently empty rather than an
+    # error -- which is how the tag guard below came to compare against "".
+    needs: [build, verify-install]
     if: github.event_name == 'release' && github.event.action == 'published'
     runs-on: ubuntu-latest
     environment: pypi
@@ -279,6 +283,10 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           built="${{ needs.build.outputs.version }}"
+          if [ -z "$built" ]; then
+            echo "::error::the build job reported no version; refusing to publish"
+            exit 1
+          fi
           if [ "$tag" != "$built" ]; then
             echo "::error::release tag ${GITHUB_REF_NAME} does not match built version ${built}"
             exit 1
