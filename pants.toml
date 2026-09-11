@@ -15,7 +15,7 @@ root_patterns = ["/"]
 [python]
 interpreter_constraints = ["==3.12.*"]
 enable_resolves = true
-resolves = { python-default = "radmantha/python-default.lock", py-reqs-dev = "radmantha_test/python-dev.lock"}
+resolves = { python-default = "spark_sql_migrations/python-default.lock", py-reqs-dev = "spark_sql_migrations_test/python-dev.lock"}
 
 [python-bootstrap]
 search_path = ["<PATH>", "<PYENV>"]
@@ -24,7 +24,7 @@ search_path = ["<PATH>", "<PYENV>"]
 extra_env_vars = ["WHICH_SPARK", "SPARK_CONNECT_HOST", "SPARK_CONNECT_PORT", "PYTEST_TMP_BASE"]
 
 [coverage-py]
-filter = ["radmantha"]
+filter = ["spark_sql_migrations"]
 report = ["console"]
 global_report = true
 fail_under = 94

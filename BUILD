@@ -1,4 +1,4 @@
-# The distribution is defined here at the build root rather than in radmantha/ so
+# The distribution is defined here at the build root rather than in spark_sql_migrations/ so
 # that it can own LICENSE: Pants requires a python_distribution to sit in or above
 # the directory of every target it owns, and the license text has to be at the repo
 # root for GitHub to detect it.
@@ -11,8 +11,8 @@ resources(
 python_distribution(
     name="dist",
     dependencies=[
-        "radmantha:lib",
-        "radmantha/spark_sql:lib",
+        "spark_sql_migrations:lib",
+        "spark_sql_migrations/spark_sql:lib",
         ":license",
         # Neither Spark flavour is a hard runtime dep. databricks-connect ships
         # its own top-level pyspark/ and delta/, so installing it alongside
@@ -21,11 +21,11 @@ python_distribution(
         #
         # These must be `!!` (transitive), not `!`. A single `!` only drops a
         # target's *direct* dependencies, and pyspark/delta-spark arrive here
-        # transitively via `radmantha:lib`'s inferred imports -- with `!` they land in
+        # transitively via `spark_sql_migrations:lib`'s inferred imports -- with `!` they land in
         # install_requires anyway, silently. Verified by reading METADATA out of
         # the built wheel; re-check it there after changing these.
-        "!!radmantha:reqs#pyspark",
-        "!!radmantha:reqs#delta-spark",
+        "!!spark_sql_migrations:reqs#pyspark",
+        "!!spark_sql_migrations:reqs#delta-spark",
     ],
     wheel=True,
     sdist=True,
@@ -33,7 +33,7 @@ python_distribution(
     # needs no dependency edge here. Without it the PyPI page renders empty.
     long_description_path="README.md",
     provides=setup_py(
-        name="radmantha",
+        name="spark_sql_migrations",
         version="0.0.1",
         description="Chained, idempotent SQL migrations for Spark and Databricks.",
         long_description_content_type="text/markdown",

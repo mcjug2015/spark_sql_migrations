@@ -14,16 +14,16 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # databricks-connect is Requires-Python ==3.12.*, so the verification venvs need 3.12.
-VERIFY_PYTHON="${RADMANTHA_VERIFY_PYTHON:-python3.12}"
+VERIFY_PYTHON="${SPARK_SQL_MIGRATIONS_VERIFY_PYTHON:-python3.12}"
 if ! command -v "$VERIFY_PYTHON" >/dev/null; then
-  echo "error: '$VERIFY_PYTHON' not on PATH; set RADMANTHA_VERIFY_PYTHON to a 3.12 interpreter" >&2
+  echo "error: '$VERIFY_PYTHON' not on PATH; set SPARK_SQL_MIGRATIONS_VERIFY_PYTHON to a 3.12 interpreter" >&2
   exit 1
 fi
 
-rm -f dist/radmantha-*.whl dist/radmantha-*.tar.gz
+rm -f dist/spark_sql_migrations-*.whl dist/spark_sql_migrations-*.tar.gz
 pants package //:dist
 
-wheel="$(ls dist/radmantha-*.whl)"
+wheel="$(ls dist/spark_sql_migrations-*.whl)"
 echo "built ${wheel}"
 python3 - "$wheel" <<'PY'
 import sys, zipfile
@@ -40,7 +40,7 @@ verify() {
   local venv
   venv="$(mktemp -d)"
   trap 'rm -rf "$venv"' RETURN
-  echo "=== ${flavour}: pip install radmantha${extra} ==="
+  echo "=== ${flavour}: pip install spark_sql_migrations${extra} ==="
   "$VERIFY_PYTHON" -m venv "$venv"
   "$venv/bin/pip" --quiet install --upgrade pip
   "$venv/bin/pip" --quiet install "${wheel}${extra}"

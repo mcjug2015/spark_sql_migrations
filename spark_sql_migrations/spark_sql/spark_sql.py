@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from jinja2 import Environment, FileSystemLoader, PackageLoader, select_autoescape
 from pyspark.sql.functions import col
 
-from radmantha.spark_utils import get_spark, is_dbr
+from spark_sql_migrations.spark_utils import get_spark, is_dbr
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ DBR_ONLY = "dbr_only"
 
 VERSION_TABLE = "_spark_migrations_version"
 
-PACKAGE_NAME = "radmantha"
+PACKAGE_NAME = "spark_sql_migrations"
 INITIAL_MIGRATIONS_PACKAGE_PATH = "migrations_initial"
 TEMPLATES_PACKAGE_PATH = "migration_templates"
 DEFAULT_TEMPLATE_NAME = "default_migration_template.sql"
@@ -305,7 +305,7 @@ def _cli_create_new_migration(message, output_path, template_path):  # pragma: n
 
 
 def build_parser():  # pragma: no cover
-    parser = argparse.ArgumentParser(description="radmantha migration utilities")
+    parser = argparse.ArgumentParser(description="spark_sql_migrations migration utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_run = subparsers.add_parser("run", help="apply all pending migrations")

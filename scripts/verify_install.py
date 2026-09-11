@@ -1,6 +1,6 @@
 """Prove one install flavour of the published wheel actually works.
 
-There is a single radmantha distribution; `bare`, `local` and `databricks` are
+There is a single spark_sql_migrations distribution; `bare`, `local` and `databricks` are
 its three install flavours, selected by extras. Run against an environment that
 already has the wheel installed:
 
@@ -13,7 +13,7 @@ import sys
 
 def check_package_data():
     """the .sql files must travel in the wheel or PackageLoader finds nothing."""
-    files = importlib.resources.files("radmantha")
+    files = importlib.resources.files("spark_sql_migrations")
     for package_path in ("migrations_initial", "migration_templates"):
         if not (files / package_path).is_dir():
             raise AssertionError(f"{package_path} missing from the installed package")
@@ -31,7 +31,7 @@ def check_bare():
 
     print(f"  jinja2 {jinja2.__version__}")
     try:
-        import radmantha.spark_utils  # noqa: F401
+        import spark_sql_migrations.spark_utils  # noqa: F401
     except ModuleNotFoundError as exc:
         print(f"  no Spark present, as intended ({exc.name} not installed)")
     else:
@@ -41,7 +41,7 @@ def check_bare():
 def check_local():
     import delta  # noqa: F401
     import pyspark
-    from radmantha.spark_sql import spark_sql
+    from spark_sql_migrations.spark_sql import spark_sql
 
     print(f"  pyspark {pyspark.__version__}, is_dbr() -> {spark_sql.is_dbr()}")
 
@@ -49,7 +49,7 @@ def check_local():
 def check_databricks():
     import databricks.connect  # type: ignore # noqa: F401 # pants: no-infer-dep
     import pyspark
-    from radmantha.spark_sql import spark_sql
+    from spark_sql_migrations.spark_sql import spark_sql
 
     print(f"  databricks-connect present, pyspark {pyspark.__version__}, is_dbr() -> {spark_sql.is_dbr()}")
 

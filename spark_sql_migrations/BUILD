@@ -30,7 +30,7 @@ python_sources(
 # The initial chain and the default template ship inside the wheel: the library
 # owns them, and PackageLoader resolves them out of the installed package.
 # PEP 561 marker: without it mypy in a consuming project refuses to read our
-# annotations and reports every `import radmantha` as import-untyped.
+# annotations and reports every `import spark_sql_migrations` as import-untyped.
 resources(
     name="py_typed",
     sources=["py.typed"],

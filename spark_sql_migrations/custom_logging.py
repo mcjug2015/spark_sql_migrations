@@ -1,6 +1,6 @@
 """Opinionated logging configuration, for *applications* to opt into.
 
-Importing radmantha never configures logging: library modules take a plain
+Importing spark_sql_migrations never configures logging: library modules take a plain
 ``logging.getLogger(__name__)`` and inherit whatever the host application set
 up. An application that wants this format calls :func:`setup_logging` from its
 own entry point -- never at import time, and never from library code, because
@@ -10,7 +10,7 @@ configuring the root logger is the application's decision to make.
 import logging.config
 import os
 
-LOG_FILE_ENV_VAR = "RADMANTHA_LOG_FILE"
+LOG_FILE_ENV_VAR = "SPARK_SQL_MIGRATIONS_LOG_FILE"
 DEFAULT_LOG_FILENAME = "local_log.log"
 
 FORMAT = "%(levelname)s %(asctime)s %(filename)s->%(funcName)s->%(lineno)d : %(message)s"

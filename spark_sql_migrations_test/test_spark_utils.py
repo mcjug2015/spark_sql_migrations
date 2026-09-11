@@ -1,8 +1,8 @@
 import sys
 from unittest import mock
 
-from radmantha import spark_utils
-from radmantha.spark_utils import get_spark, get_warehouse_dir, is_dbr
+from spark_sql_migrations import spark_utils
+from spark_sql_migrations.spark_utils import get_spark, get_warehouse_dir, is_dbr
 
 
 def _fake_databricks_modules(databricks_session):
@@ -26,7 +26,7 @@ def test_get_warehouse_dir_from_env(monkeypatch):
     assert get_warehouse_dir() == "/fake/from/env"
 
 
-@mock.patch("radmantha.spark_utils.os.getcwd", return_value="/fake/cwd")
+@mock.patch("spark_sql_migrations.spark_utils.os.getcwd", return_value="/fake/cwd")
 def test_get_warehouse_dir_defaults_under_cwd(getcwd, monkeypatch):
     monkeypatch.delenv(spark_utils.WAREHOUSE_DIR_ENV_VAR, raising=False)
 
@@ -45,7 +45,7 @@ def test_get_spark_use_dbc(monkeypatch):
     databricks_session.builder.getOrCreate.assert_called_once()
 
 
-@mock.patch("radmantha.spark_utils.is_dbr", return_value=True)
+@mock.patch("spark_sql_migrations.spark_utils.is_dbr", return_value=True)
 def test_get_spark_on_dbr(is_dbr_mock, monkeypatch):
     """use_dbc left False, so is_dbr() is what routes to DatabricksSession."""
     monkeypatch.setenv("DATABRICKS_SERVERLESS_COMPUTE_ID", "placeholder")
@@ -58,8 +58,8 @@ def test_get_spark_on_dbr(is_dbr_mock, monkeypatch):
     is_dbr_mock.assert_called_once()
 
 
-@mock.patch("radmantha.spark_utils.SparkSession")
-@mock.patch("radmantha.spark_utils.is_dbr", return_value=False)
+@mock.patch("spark_sql_migrations.spark_utils.SparkSession")
+@mock.patch("spark_sql_migrations.spark_utils.is_dbr", return_value=False)
 def test_get_spark_remote(is_dbr_mock, spark_session, monkeypatch):
     monkeypatch.setenv("SPARK_REMOTE", "sc://fakehost:15002")
 
@@ -70,10 +70,10 @@ def test_get_spark_remote(is_dbr_mock, spark_session, monkeypatch):
     is_dbr_mock.assert_called_once()
 
 
-@mock.patch("radmantha.spark_utils.configure_spark_with_delta_pip")
-@mock.patch("radmantha.spark_utils.get_warehouse_dir", return_value="/fake/warehouse")
-@mock.patch("radmantha.spark_utils.SparkSession")
-@mock.patch("radmantha.spark_utils.is_dbr", return_value=False)
+@mock.patch("spark_sql_migrations.spark_utils.configure_spark_with_delta_pip")
+@mock.patch("spark_sql_migrations.spark_utils.get_warehouse_dir", return_value="/fake/warehouse")
+@mock.patch("spark_sql_migrations.spark_utils.SparkSession")
+@mock.patch("spark_sql_migrations.spark_utils.is_dbr", return_value=False)
 def test_get_spark_local(is_dbr_mock, spark_session, get_warehouse_dir_mock, configure, monkeypatch):
     monkeypatch.delenv("SPARK_REMOTE", raising=False)
     monkeypatch.delenv(spark_utils.METASTORE_DIR_ENV_VAR, raising=False)
@@ -86,10 +86,10 @@ def test_get_spark_local(is_dbr_mock, spark_session, get_warehouse_dir_mock, con
     is_dbr_mock.assert_called_once()
 
 
-@mock.patch("radmantha.spark_utils.configure_spark_with_delta_pip")
-@mock.patch("radmantha.spark_utils.get_warehouse_dir", return_value="/fake/warehouse")
-@mock.patch("radmantha.spark_utils.SparkSession")
-@mock.patch("radmantha.spark_utils.is_dbr", return_value=False)
+@mock.patch("spark_sql_migrations.spark_utils.configure_spark_with_delta_pip")
+@mock.patch("spark_sql_migrations.spark_utils.get_warehouse_dir", return_value="/fake/warehouse")
+@mock.patch("spark_sql_migrations.spark_utils.SparkSession")
+@mock.patch("spark_sql_migrations.spark_utils.is_dbr", return_value=False)
 def test_get_spark_local_with_metastore(is_dbr_mock, spark_session, get_warehouse_dir_mock, configure, monkeypatch):
     monkeypatch.delenv("SPARK_REMOTE", raising=False)
     monkeypatch.setenv(spark_utils.METASTORE_DIR_ENV_VAR, "/fake/metastore")

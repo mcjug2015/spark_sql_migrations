@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 
-from radmantha.spark_utils import get_spark
+from spark_sql_migrations.spark_utils import get_spark
 
 
 def pytest_configure(config):

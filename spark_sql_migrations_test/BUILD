@@ -12,6 +12,6 @@ python_test_utils(
 
 python_tests(
     name="tests",
-    dependencies=["radmantha:lib_test"],
+    dependencies=["spark_sql_migrations:lib_test"],
     resolve="py-reqs-dev",
 )

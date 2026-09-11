@@ -1,0 +1,11 @@
+python_tests(
+    name="tests",
+    dependencies=[
+        "spark_sql_migrations:lib_test",
+        "spark_sql_migrations/spark_sql:lib_test",
+        "spark_sql_migrations_test/res:all_spark_migrations",
+        "spark_sql_migrations_test/res:dbr_only_migrations",
+    ],
+    resolve="py-reqs-dev",
+    batch_compatibility_tag="shared_spark",
+)

@@ -1,4 +1,4 @@
-# radmantha
+# spark_sql_migrations
 
 [![CI](https://github.com/mcjug2015/spark_sql_migrations/actions/workflows/ci.yml/badge.svg)](https://github.com/mcjug2015/spark_sql_migrations/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -10,33 +10,30 @@ Alembic-shaped schema migrations for a Spark/Delta catalog: your migrations are 
 a version table inside your own schema, and each run applies only the tail that has not
 been applied yet.
 
-> The repository is `spark_sql_migrations`; the package is **`radmantha`**. Not yet on
-> PyPI — see [Installing](#installing).
-
 ## Why
 
 Spark and Databricks have no migration story of their own. Delta gives you `CREATE TABLE
 IF NOT EXISTS`, but nothing that tracks which DDL a given catalog has seen, and nothing
 that lets you write a change once and have it apply on a laptop and on Databricks alike.
-radmantha is the small amount of machinery that closes that gap, and nothing more: no ORM,
-no autogeneration, no Python migration scripts. You write SQL.
+spark_sql_migrations is the small amount of machinery that closes that gap, and nothing
+more: no ORM, no autogeneration, no Python migration scripts. You write SQL.
 
 ## Installing
 
-`radmantha` declares **no Spark of its own** — the extras decide which one you get:
+`spark_sql_migrations` declares **no Spark of its own** — the extras decide which one you get:
 
 ```bash
-pip install "radmantha[local]"        # pyspark + delta-spark, for laptops and CI
-pip install "radmantha[databricks]"   # databricks-connect
-pip install radmantha                 # no Spark at all
+pip install "spark_sql_migrations[local]"        # pyspark + delta-spark, for laptops and CI
+pip install "spark_sql_migrations[databricks]"   # databricks-connect
+pip install spark_sql_migrations                 # no Spark at all
 ```
 
 Pick exactly one flavour. `databricks-connect` ships its own top-level `pyspark/` and
 `delta/` packages, so installing it alongside `pyspark`/`delta-spark` silently clobbers
 both.
 
-Until the first PyPI release, consume the wheel built by CI (the `dist` artifact on any
-green run) or build it yourself with `pants package //:dist`.
+Unreleased changes can be consumed as the wheel built by CI (the `dist` artifact on any
+green run) or built locally with `pants package //:dist`.
 
 ## The two kinds of migration
 
@@ -45,7 +42,7 @@ Migrations come from two different owners, and they behave differently:
 | | ships in the wheel | owned by you |
 |---|---|---|
 | **what** | catalog, schema, `_spark_migrations_version` table | your tables and columns |
-| **where** | `radmantha/migrations_initial/` | `all_spark_migrations/`, `dbr_only_migrations/` |
+| **where** | `spark_sql_migrations/migrations_initial/` | `all_spark_migrations/`, `dbr_only_migrations/` |
 | **selected by** | filename suffix — `_all.sql` everywhere, `_dbr_only.sql` on Databricks | the `prev_revision_id` chain |
 | **when applied** | every run | once, then recorded |
 
@@ -54,7 +51,7 @@ chains are applied once each and their head revision is written to the version t
 
 ## Laying out your chains
 
-Point radmantha at a directory holding one or both chains:
+Point spark_sql_migrations at a directory holding one or both chains:
 
 ```
 your_project/
@@ -69,7 +66,7 @@ Choose deliberately. SQL that only Databricks understands must not live in
 ## Running migrations
 
 ```bash
-python -m radmantha.spark_sql.spark_sql run \
+python -m spark_sql_migrations.spark_sql.spark_sql run \
     --cat spark_catalog \
     --schema default \
     --migrations-dir path/to/migrations
@@ -80,7 +77,7 @@ Or from Python, which is what a consuming project usually wraps:
 ```python
 import os
 
-from radmantha.spark_sql.spark_sql import main
+from spark_sql_migrations.spark_sql.spark_sql import main
 
 
 def get_migrations_dir():
@@ -103,7 +100,7 @@ before it is executed, so you can always read the exact SQL a run applied.
 Generate one rather than hand-rolling the header:
 
 ```bash
-python -m radmantha.spark_sql.spark_sql create_new_migration \
+python -m spark_sql_migrations.spark_sql.spark_sql create_new_migration \
     --message "add batch id to metrics" \
     --output-path path/to/migrations/all_spark_migrations
 ```
@@ -162,17 +159,17 @@ Built with [Pants](https://www.pantsbuild.org/). Two resolves: `python-default` 
 library, `py-reqs-dev` for tests.
 
 ```bash
-pants fmt lint check radmantha/ radmantha_test/                            # black, isort, flake8, mypy
-pants test --use-coverage radmantha_test/:: -radmantha_test/integration::  # unit
-pants test radmantha_test/integration::                                    # integration, separate invocation
+pants fmt lint check spark_sql_migrations/ spark_sql_migrations_test/                            # black, isort, flake8, mypy
+pants test --use-coverage spark_sql_migrations_test/:: -spark_sql_migrations_test/integration::  # unit
+pants test spark_sql_migrations_test/integration::                                    # integration, separate invocation
 pants package //:dist                                                      # wheel + sdist
 ```
 
 `scripts/run_local.sh` runs everything CI runs, including building the distribution and
-verifying all three install flavours. Branch coverage over `radmantha/` is gated at 94%.
+verifying all three install flavours. Branch coverage over `spark_sql_migrations/` is gated at 94%.
 
-Dependencies are locked. Edit `radmantha/requirements.txt` or
-`radmantha_test/requirements-dev.txt`, then `pants generate-lockfiles` — never hand-edit a
+Dependencies are locked. Edit `spark_sql_migrations/requirements.txt` or
+`spark_sql_migrations_test/requirements-dev.txt`, then `pants generate-lockfiles` — never hand-edit a
 lockfile.
 
 ## License

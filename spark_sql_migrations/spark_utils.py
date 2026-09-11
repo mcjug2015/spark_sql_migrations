@@ -4,7 +4,7 @@ import sys
 from delta import configure_spark_with_delta_pip  # type: ignore
 from pyspark.sql.session import SparkSession
 
-APP_NAME = "radmantha"
+APP_NAME = "spark_sql_migrations"
 
 WAREHOUSE_DIR_ENV_VAR = "SPARK_WAREHOUSE_DIR"
 METASTORE_DIR_ENV_VAR = "SPARK_METASTORE_DIR"

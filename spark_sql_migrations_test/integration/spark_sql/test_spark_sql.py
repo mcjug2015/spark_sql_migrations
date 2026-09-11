@@ -3,9 +3,9 @@ from unittest import mock
 
 from freezegun import freeze_time
 
-from radmantha import custom_logging
-from radmantha.spark_sql import spark_sql
-from radmantha.spark_sql.spark_sql import ALL_SPARK, Migration
+from spark_sql_migrations import custom_logging
+from spark_sql_migrations.spark_sql import spark_sql
+from spark_sql_migrations.spark_sql.spark_sql import ALL_SPARK, Migration
 
 logger = custom_logging.setup_logging().getLogger(__name__)
 

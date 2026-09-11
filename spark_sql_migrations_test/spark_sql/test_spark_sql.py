@@ -8,7 +8,7 @@ from jinja2.environment import Environment
 from jinja2.loaders import FileSystemLoader
 from jinja2.utils import select_autoescape
 
-from radmantha.spark_sql.spark_sql import (
+from spark_sql_migrations.spark_sql.spark_sql import (
     ALL_SPARK,
     DBR_ONLY,
     Migration,
@@ -156,8 +156,8 @@ def test_get_migrations_list_no_migrations(tmp_path):
     assert get_migrations_list(str(tmp_path)) == []
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.get_ordered_migration_objs", return_value=["testing"])
-@mock.patch("radmantha.spark_sql.spark_sql._parse_migration", return_value="testing")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_ordered_migration_objs", return_value=["testing"])
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql._parse_migration", return_value="testing")
 def test_get_migrations_list_ignores_non_sql_files(parse_migration, get_ordered, tmp_path):
     (tmp_path / "01_i_am_test.sql").touch()
     (tmp_path / "02_i_am_non_sql_test.txt").touch()
@@ -168,7 +168,9 @@ def test_get_migrations_list_ignores_non_sql_files(parse_migration, get_ordered,
 
 
 @freeze_time("2007-07-07")
-@mock.patch("radmantha.spark_sql.spark_sql.uuid.uuid4", return_value=UUID(bytes=b"1111222233334444", version=4))
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.uuid.uuid4", return_value=UUID(bytes=b"1111222233334444", version=4)
+)
 def test_create_new_migration_long_slug(_uuid, tmp_path):
     template_path = tmp_path / "template.sql"
     with open(template_path, "w") as handle:
@@ -205,7 +207,7 @@ def test_get_ascending_letters_within_minute():
 
 
 @freeze_time("2007-07-07 01:02:03")
-@mock.patch("radmantha.spark_sql.spark_sql.get_ascending_letters_within_minute", return_value="QQPP")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_ascending_letters_within_minute", return_value="QQPP")
 def test_get_output_folder(get_ascending_letters):
     assert get_output_folder("/i/am/a/fake/parent") == "/i/am/a/fake/parent/20070707_0102_QQPP"
     get_ascending_letters.assert_called_once()
@@ -215,21 +217,21 @@ def test_use_migration_file_all():
     assert use_migration_file("TESTING_all.sql")
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.is_dbr", return_value=True)
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.is_dbr", return_value=True)
 def test_use_migration_file_dbr(is_dbr):
     assert use_migration_file("TESTING_dbr_only.sql")
     is_dbr.assert_called_once()
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.is_dbr", return_value=False)
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.is_dbr", return_value=False)
 def test_use_migration_file_false(is_dbr):
     assert use_migration_file("TESTING.sql") is False
     is_dbr.assert_called_once()
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.migrate_w_rev")
-@mock.patch("radmantha.spark_sql.spark_sql.migrate_initial")
-@mock.patch("radmantha.spark_sql.spark_sql.is_dbr", return_value=True)
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_w_rev")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_initial")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.is_dbr", return_value=True)
 def test_run_migrations(is_dbr, migrate_initial_mock, migrate_w_rev_mock, tmp_path):
     output_folder = str(tmp_path / "28818989_8182_BCDEQQ")
     spark = mock.MagicMock()
@@ -245,9 +247,9 @@ def test_run_migrations(is_dbr, migrate_initial_mock, migrate_w_rev_mock, tmp_pa
     ]
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.run_migrations")
-@mock.patch("radmantha.spark_sql.spark_sql.get_spark")
-@mock.patch("radmantha.spark_sql.spark_sql.get_output_folder")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.run_migrations")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_spark")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_output_folder")
 def test_main(get_output_folder_mock, get_spark_mock, run_migrations_mock, tmp_path):
     get_output_folder_mock.return_value = str(tmp_path / "20070707_0102_QQPP")
 
@@ -265,11 +267,11 @@ def test_main(get_output_folder_mock, get_spark_mock, run_migrations_mock, tmp_p
     )
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.get_output_folder", return_value="/i/am/a/fake/out")
-@mock.patch("radmantha.spark_sql.spark_sql.run_migrations")
-@mock.patch("radmantha.spark_sql.spark_sql.get_spark")
-@mock.patch("radmantha.spark_sql.spark_sql.os.makedirs")
-@mock.patch("radmantha.spark_sql.spark_sql.os.getcwd", return_value="/fake/cwd")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_output_folder", return_value="/i/am/a/fake/out")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.run_migrations")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_spark")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.os.makedirs")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.os.getcwd", return_value="/fake/cwd")
 def test_main_defaults_output_under_cwd(getcwd, makedirs, get_spark_mock, run_migrations_mock, get_output_folder_mock):
     main("spark_catalog", "default", "/i/am/a/fake/root")
 
@@ -280,7 +282,7 @@ def test_main_defaults_output_under_cwd(getcwd, makedirs, get_spark_mock, run_mi
     run_migrations_mock.assert_called_once()
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
 def test_get_unapplied_migrations_list_no_table(get_migrations_list_mock, test_spark):
     test_spark.sql("drop table if exists spark_catalog.default._spark_migrations_version")
 
@@ -290,7 +292,7 @@ def test_get_unapplied_migrations_list_no_table(get_migrations_list_mock, test_s
     get_migrations_list_mock.assert_called_once_with("/i/am/a/fake/dir")
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
 def test_get_unapplied_migrations_list_no_rows(get_migrations_list_mock, test_spark):
     test_spark.sql(VERSION_TABLE_DDL)
 
@@ -301,7 +303,7 @@ def test_get_unapplied_migrations_list_no_rows(get_migrations_list_mock, test_sp
 
 
 @mock.patch(
-    "radmantha.spark_sql.spark_sql.get_migrations_list",
+    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_list",
     return_value=[Migration(revision_id="wont match", prev_revision_id=None, template_name="test1")],
 )
 def test_get_unapplied_migrations_list_no_match(get_migrations_list_mock, test_spark):
@@ -317,7 +319,7 @@ def test_get_unapplied_migrations_list_no_match(get_migrations_list_mock, test_s
 
 
 @mock.patch(
-    "radmantha.spark_sql.spark_sql.get_migrations_list",
+    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_list",
     return_value=[
         Migration(revision_id="55", prev_revision_id=None, template_name="test1"),
         Migration(revision_id="unapplied", prev_revision_id="55", template_name="test2"),
@@ -336,8 +338,8 @@ def test_get_unapplied_migrations_list_happy(get_migrations_list_mock, test_spar
     get_migrations_list_mock.assert_called_once()
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.apply_template", return_value="select 1")
-@mock.patch("radmantha.spark_sql.spark_sql.Environment")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.apply_template", return_value="select 1")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.Environment")
 def test_migrate_initial_happy(environment, apply_template_mock, test_spark):
     environment.return_value.list_templates.return_value = ["20010909_1_all.sql"]
 
@@ -368,14 +370,16 @@ def test_record_revision(test_spark):
     ]
 
 
-@mock.patch("radmantha.spark_sql.spark_sql.record_revision")
-@mock.patch("radmantha.spark_sql.spark_sql.apply_template", return_value="select 1")
-@mock.patch("radmantha.spark_sql.spark_sql.Environment")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.record_revision")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.apply_template", return_value="select 1")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.Environment")
 @mock.patch(
-    "radmantha.spark_sql.spark_sql.get_unapplied_migrations_list",
+    "spark_sql_migrations.spark_sql.spark_sql.get_unapplied_migrations_list",
     return_value=[Migration(revision_id="55", prev_revision_id=None, template_name="test1")],
 )
-@mock.patch("radmantha.spark_sql.spark_sql.get_migrations_dir", return_value="/i/am/a/fake/root/all_spark_migrations")
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_dir", return_value="/i/am/a/fake/root/all_spark_migrations"
+)
 def test_migrate_w_rev(
     get_migrations_dir_mock,
     get_unapplied_migrations_list_mock,
