@@ -72,9 +72,12 @@ jobs:
       # Deliberately NOT `pants generate-lockfiles`: the lockfiles are committed,
       # and regenerating here would hide drift between them and the requirements
       # files. Pants fails loudly if they are stale, which is the wanted signal.
+      # `dir::` and not `dir/`: a bare directory argument expands to the targets in
+      # that directory only, so everything under spark_sql/ and integration/ went
+      # unchecked. scripts/ is listed because scripts/BUILD exists for exactly this.
       - name: Validate autoformat and types
         run: |
-          pants lint check spark_sql_migrations/ spark_sql_migrations_test/
+          pants lint check spark_sql_migrations:: spark_sql_migrations_test:: scripts::
 
       - name: Prepare pytest tmp dir
         shell: bash

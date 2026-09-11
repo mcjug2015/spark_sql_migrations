@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from jinja2.environment import Environment
 from jinja2.loaders import FileSystemLoader
 from jinja2.utils import select_autoescape
-
 from spark_sql_migrations.spark_sql.spark_sql import (
     ALL_SPARK,
     DBR_ONLY,

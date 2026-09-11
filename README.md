@@ -159,17 +159,24 @@ Built with [Pants](https://www.pantsbuild.org/). Two resolves: `python-default` 
 library, `py-reqs-dev` for tests.
 
 ```bash
-pants fmt lint check spark_sql_migrations/ spark_sql_migrations_test/                            # black, isort, flake8, mypy
-pants test --use-coverage spark_sql_migrations_test/:: -spark_sql_migrations_test/integration::  # unit
-pants test spark_sql_migrations_test/integration::                                    # integration, separate invocation
-pants package //:dist                                                      # wheel + sdist
+# black, isort, flake8, mypy. `::` and not `/`, or the subtrees go unchecked.
+pants fmt lint check spark_sql_migrations:: spark_sql_migrations_test:: scripts::
+
+# unit, then integration as its own invocation
+pants test --use-coverage spark_sql_migrations_test/:: -spark_sql_migrations_test/integration::
+pants test spark_sql_migrations_test/integration::
+
+# wheel + sdist
+pants package //:dist
 ```
 
 `scripts/run_local.sh` runs everything CI runs, including building the distribution and
-verifying all three install flavours. Branch coverage over `spark_sql_migrations/` is gated at 94%.
+verifying all three install flavours. Branch coverage over `spark_sql_migrations/` is
+gated at 94%.
 
 Dependencies are locked. Edit `spark_sql_migrations/requirements.txt` or
-`spark_sql_migrations_test/requirements-dev.txt`, then `pants generate-lockfiles` — never hand-edit a
+`spark_sql_migrations_test/requirements-dev.txt`, then `pants generate-lockfiles` — never
+hand-edit a
 lockfile.
 
 ## License

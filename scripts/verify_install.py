@@ -41,6 +41,7 @@ def check_bare():
 def check_local():
     import delta  # noqa: F401
     import pyspark
+
     from spark_sql_migrations.spark_sql import spark_sql
 
     print(f"  pyspark {pyspark.__version__}, is_dbr() -> {spark_sql.is_dbr()}")
@@ -49,6 +50,7 @@ def check_local():
 def check_databricks():
     import databricks.connect  # type: ignore # noqa: F401 # pants: no-infer-dep
     import pyspark
+
     from spark_sql_migrations.spark_sql import spark_sql
 
     print(f"  databricks-connect present, pyspark {pyspark.__version__}, is_dbr() -> {spark_sql.is_dbr()}")

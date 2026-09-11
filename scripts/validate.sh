@@ -17,10 +17,12 @@ mkdir -p "$HOME/.cache/pytest-tmp"
 export PYTEST_TMP_BASE="$HOME/.cache/pytest-tmp"
 
 if [ "$RUN_FMT" -eq 1 ]; then
-  pants fmt spark_sql_migrations/ spark_sql_migrations_test/
+  pants fmt spark_sql_migrations:: spark_sql_migrations_test:: scripts::
 fi
 
-pants lint check spark_sql_migrations/ spark_sql_migrations_test/
+# `dir::` and not `dir/`: a bare directory argument covers only the targets in that
+# directory, which silently skipped the spark_sql/ and integration/ subtrees.
+pants lint check spark_sql_migrations:: spark_sql_migrations_test:: scripts::
 
 # Unit tests run first, with coverage. Integration tests run afterward, as their own
 # invocation, never in parallel with the unit run, and are excluded from --use-coverage --
