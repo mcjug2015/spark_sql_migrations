@@ -7,8 +7,13 @@ already has the wheel installed:
     python scripts/verify_install.py {bare|local|databricks}
 """
 
+import importlib.metadata
 import importlib.resources
+import os
+import subprocess
 import sys
+
+CONSOLE_SCRIPT = "spark-sql-migrations"
 
 
 def check_package_data():
@@ -19,6 +24,20 @@ def check_package_data():
             raise AssertionError(f"{package_path} missing from the installed package")
     initial = sorted(p.name for p in (files / "migrations_initial").iterdir())
     print(f"  package data: {len(initial)} initial migrations, first is {initial[0]}")
+
+
+def check_console_script_declared():
+    """the wheel metadata must declare the console command in every flavour."""
+    if not importlib.metadata.entry_points(group="console_scripts", name=CONSOLE_SCRIPT):
+        raise AssertionError(f"{CONSOLE_SCRIPT} console script missing from the installed metadata")
+    print(f"  console script: {CONSOLE_SCRIPT} declared")
+
+
+def check_console_script_runs():
+    """--help imports the whole CLI module, so it needs a Spark flavour installed."""
+    script = os.path.join(os.path.dirname(sys.executable), CONSOLE_SCRIPT)
+    subprocess.run([script, "--help"], check=True, capture_output=True)
+    print(f"  console script: {CONSOLE_SCRIPT} --help ok")
 
 
 def check_bare():
@@ -45,6 +64,7 @@ def check_local():
     from spark_sql_migrations.spark_sql import spark_sql
 
     print(f"  pyspark {pyspark.__version__}, is_dbr() -> {spark_sql.is_dbr()}")
+    check_console_script_runs()
 
 
 def check_databricks():
@@ -64,6 +84,7 @@ def main(flavour):
         raise SystemExit(f"unknown flavour {flavour!r}; expected one of {sorted(CHECKS)}")
     print(f"verifying the {flavour} install flavour")
     check_package_data()
+    check_console_script_declared()
     CHECKS[flavour]()
     print(f"{flavour}: ok")
 
