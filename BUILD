@@ -27,6 +27,9 @@ python_distribution(
         "!!spark_sql_migrations:reqs#pyspark",
         "!!spark_sql_migrations:reqs#delta-spark",
     ],
+    entry_points={
+        "console_scripts": {"spark-sql-migrations": "spark_sql_migrations.spark_sql.spark_sql:cli"},
+    },
     wheel=True,
     sdist=True,
     # Pants reads the file itself and injects it as long_description, so README.md
@@ -34,7 +37,7 @@ python_distribution(
     long_description_path="README.md",
     provides=setup_py(
         name="spark_sql_migrations",
-        version="0.0.1",
+        version="0.0.2",
         description="Chained, idempotent SQL migrations for Spark and Databricks.",
         long_description_content_type="text/markdown",
         author="Victor Semenov",

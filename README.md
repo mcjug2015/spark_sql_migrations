@@ -66,11 +66,17 @@ Choose deliberately. SQL that only Databricks understands must not live in
 ## Running migrations
 
 ```bash
-python -m spark_sql_migrations.spark_sql.spark_sql run \
+spark-sql-migrations run \
     --cat spark_catalog \
     --schema default \
     --migrations-dir path/to/migrations
 ```
+
+The command configures logging via `custom_logging.setup_logging()`, so each applied
+migration is logged to stdout and to `local_log.log` in the working directory (override
+with `SPARK_SQL_MIGRATIONS_LOG_FILE`). The command needs a Spark flavour installed; it
+fails to import on a bare install. `python -m spark_sql_migrations.spark_sql.spark_sql`
+is equivalent.
 
 Or from Python, which is what a consuming project usually wraps:
 
@@ -88,7 +94,8 @@ def get_migrations_dir():
 main(cat="spark_catalog", schema="default", migrations_dir=get_migrations_dir())
 ```
 
-`main` builds its own session via `get_spark()`. To supply your own — a session already
+`main` builds its own session via `get_spark()` and, being library code, leaves logging to
+you. To supply your own — a session already
 configured by your job, say — call `run_migrations(spark, cat, schema, output_folder,
 migrations_root)` directly.
 
@@ -100,7 +107,7 @@ before it is executed, so you can always read the exact SQL a run applied.
 Generate one rather than hand-rolling the header:
 
 ```bash
-python -m spark_sql_migrations.spark_sql.spark_sql create_new_migration \
+spark-sql-migrations create_new_migration \
     --message "add batch id to metrics" \
     --output-path path/to/migrations/all_spark_migrations
 ```

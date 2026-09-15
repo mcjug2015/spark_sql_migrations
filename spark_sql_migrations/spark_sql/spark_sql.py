@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from jinja2 import Environment, FileSystemLoader, PackageLoader, select_autoescape
 from pyspark.sql.functions import col
 
+from spark_sql_migrations import custom_logging
 from spark_sql_migrations.spark_utils import get_spark, is_dbr
 
 logger = logging.getLogger(__name__)
@@ -325,9 +326,18 @@ def build_parser():  # pragma: no cover
     return parser
 
 
-if __name__ == "__main__":  # pragma: no cover
-    args = build_parser().parse_args()
-    kwargs = vars(args)
+def cli(argv=None):  # pragma: no cover
+    """the `spark-sql-migrations` console command.
+
+    an application entry point, so unlike the rest of this package it configures
+    logging -- see custom_logging's module docstring.
+    """
+    custom_logging.setup_logging()
+    kwargs = vars(build_parser().parse_args(argv))
     func = kwargs.pop("func")
     kwargs.pop("command")
     func(**kwargs)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    cli()
