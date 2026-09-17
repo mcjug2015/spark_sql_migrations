@@ -1,13 +1,13 @@
+import logging
 import os
 from unittest import mock
 
 from freezegun import freeze_time
 
-from spark_sql_migrations import custom_logging
 from spark_sql_migrations.spark_sql import spark_sql
 from spark_sql_migrations.spark_sql.spark_sql import ALL_SPARK, Migration
 
-logger = custom_logging.setup_logging().getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # stands in for a consuming project: the library owns migrations_initial/ and the
 # template, the client owns all_spark_migrations/ and dbr_only_migrations/.
