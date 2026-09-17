@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from jinja2 import Environment, FileSystemLoader, PackageLoader, select_autoescape
 from pyspark.sql.functions import col
 
-from spark_sql_migrations import custom_logging
 from spark_sql_migrations.spark_utils import get_spark, is_dbr
 
 logger = logging.getLogger(__name__)
@@ -261,7 +260,11 @@ def record_revision(spark, cat: str, schema: str, migration_type: str, revision_
 
 
 def migrate_w_rev(spark, output_folder, migrations_root, cat: str, schema: str, migration_type: str):
-    """apply the migrations of one client chain that VERSION_TABLE hasn't recorded yet."""
+    """
+    apply the migrations of one client chain that VERSION_TABLE hasn't recorded yet.
+    TODO XXX permit applying up to a revision below the head revision
+    TODO XXX add backwards migrations, permit migrating backwards
+    """
     migrations_dir = get_migrations_dir(migrations_root, migration_type)
     unapplied = get_unapplied_migrations_list(spark, migrations_dir, migration_type, cat=cat, schema=schema)
 
@@ -330,9 +333,15 @@ def cli(argv=None):  # pragma: no cover
     """the `spark-sql-migrations` console command.
 
     an application entry point, so unlike the rest of this package it configures
-    logging -- see custom_logging's module docstring.
+    logging. basicConfig is a no-op once the root logger has handlers, which keeps
+    this from clobbering a host application that got there first.
     """
-    custom_logging.setup_logging()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(asctime)s %(name)s : %(message)s",
+        datefmt="%y/%m/%d %H:%M:%S",
+    )
+    logging.getLogger("py4j").setLevel(logging.ERROR)
     kwargs = vars(build_parser().parse_args(argv))
     func = kwargs.pop("func")
     kwargs.pop("command")

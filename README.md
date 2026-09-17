@@ -72,9 +72,10 @@ spark-sql-migrations run \
     --migrations-dir path/to/migrations
 ```
 
-The command configures logging via `custom_logging.setup_logging()`, so each applied
-migration is logged to stdout and to `local_log.log` in the working directory (override
-with `SPARK_SQL_MIGRATIONS_LOG_FILE`). The command needs a Spark flavour installed; it
+The command configures logging via `logging.basicConfig()`, so each applied migration is
+logged to stderr at INFO. It leaves an already-configured root logger alone, and every
+other entry point into this library inherits the host application's logging untouched.
+The command needs a Spark flavour installed; it
 fails to import on a bare install. `python -m spark_sql_migrations.spark_sql.spark_sql`
 is equivalent.
 
