@@ -44,10 +44,12 @@ Migrations come from two different owners, and they behave differently:
 | **what** | catalog, schema, `_spark_migrations_version` table | your tables and columns |
 | **where** | `spark_sql_migrations/migrations_initial/` | `all_spark_migrations/`, `dbr_only_migrations/` |
 | **selected by** | filename suffix — `_all.sql` everywhere, `_dbr_only.sql` on Databricks | the `prev_revision_id` chain |
-| **when applied** | every run | once, then recorded |
+| **when applied** | until the version table exists | once, then recorded |
 
-The bootstrap chain is re-applied on **every** run, so it must be idempotent. Your own
-chains are applied once each and their head revision is written to the version table.
+The bootstrap chain is applied on every run until `_spark_migrations_version` exists, and
+skipped from then on. A run that fails partway through bootstrapping replays it, so it must
+still be idempotent. Your own chains are applied once each and their head revision is
+written to the version table.
 
 ## Laying out your chains
 

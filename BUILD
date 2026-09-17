@@ -37,7 +37,7 @@ python_distribution(
     long_description_path="README.md",
     provides=setup_py(
         name="spark_sql_migrations",
-        version="0.0.3",
+        version="0.0.4",
         description="Chained, idempotent SQL migrations for Spark and Databricks.",
         long_description_content_type="text/markdown",
         author="Victor Semenov",
