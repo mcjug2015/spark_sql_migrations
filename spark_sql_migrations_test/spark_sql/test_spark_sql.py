@@ -231,19 +231,37 @@ def test_use_migration_file_false(is_dbr):
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_w_rev")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_initial")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.is_dbr", return_value=True)
-def test_run_migrations(is_dbr, migrate_initial_mock, migrate_w_rev_mock, tmp_path):
+def test_run_migrations_no_version_table(is_dbr, migrate_initial_mock, migrate_w_rev_mock, test_spark, tmp_path):
+    test_spark.sql("drop table if exists spark_catalog.default._spark_migrations_version")
     output_folder = str(tmp_path / "28818989_8182_BCDEQQ")
-    spark = mock.MagicMock()
 
-    run_migrations(spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/root")
+    run_migrations(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/root")
 
     assert os.path.isdir(output_folder)
-    migrate_initial_mock.assert_called_once()
+    migrate_initial_mock.assert_called_once_with(
+        test_spark, os.path.join(output_folder, "migrations_initial"), "spark_catalog", "default"
+    )
     is_dbr.assert_called_once()
     assert migrate_w_rev_mock.call_args_list == [
-        mock.call(spark, mock.ANY, "/i/am/a/fake/root", "spark_catalog", "default", DBR_ONLY),
-        mock.call(spark, mock.ANY, "/i/am/a/fake/root", "spark_catalog", "default", ALL_SPARK),
+        mock.call(test_spark, mock.ANY, "/i/am/a/fake/root", "spark_catalog", "default", DBR_ONLY),
+        mock.call(test_spark, mock.ANY, "/i/am/a/fake/root", "spark_catalog", "default", ALL_SPARK),
     ]
+
+
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_w_rev")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_initial")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.is_dbr", return_value=False)
+def test_run_migrations_version_table_exists(is_dbr, migrate_initial_mock, migrate_w_rev_mock, test_spark, tmp_path):
+    test_spark.sql(VERSION_TABLE_DDL)
+    output_folder = str(tmp_path / "28818989_8182_BCDEQQ")
+
+    run_migrations(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/root")
+
+    migrate_initial_mock.assert_not_called()
+    is_dbr.assert_called_once()
+    migrate_w_rev_mock.assert_called_once_with(
+        test_spark, mock.ANY, "/i/am/a/fake/root", "spark_catalog", "default", ALL_SPARK
+    )
 
 
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.run_migrations")

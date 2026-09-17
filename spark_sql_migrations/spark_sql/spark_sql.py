@@ -5,7 +5,8 @@ Two kinds of migration exist, and they are owned by different parties:
 * the *initial* chain and the new-migration template ship inside this package.
   They bootstrap the catalog, the schema and the version table, are selected by
   filename suffix (``_all.sql`` / ``_dbr_only.sql``) rather than by revision,
-  and are re-applied on every run -- so they must be idempotent.
+  and are applied on every run until the version table exists -- so a run that
+  failed partway through replays them, and they must be idempotent.
 * the ``all_spark_migrations/`` and ``dbr_only_migrations/`` chains belong to
   the consuming project. The caller passes their parent directory as
   ``migrations_root``; each chain is walked from its root via
@@ -288,7 +289,11 @@ def run_migrations(spark, cat, schema, output_folder, migrations_root):
     os.makedirs(initial_output_folder, exist_ok=True)
     os.makedirs(dbr_ouput_folder, exist_ok=True)
     os.makedirs(all_spark_ouput_folder, exist_ok=True)
-    migrate_initial(spark, initial_output_folder, cat, schema)
+    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
+    if spark.catalog.tableExists(version_table):
+        logger.info(f"{version_table} already exists; skipping the initial migrations;")
+    else:
+        migrate_initial(spark, initial_output_folder, cat, schema)
     if is_dbr():
         migrate_w_rev(spark, dbr_ouput_folder, migrations_root, cat, schema, DBR_ONLY)
     migrate_w_rev(spark, all_spark_ouput_folder, migrations_root, cat, schema, ALL_SPARK)
