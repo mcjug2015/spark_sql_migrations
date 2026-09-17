@@ -10,8 +10,6 @@ name: CI
 on:
   push:
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       publish_testpypi:
@@ -117,6 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.dist.outputs.version }}
+      published: ${{ steps.pypi.outputs.published }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -189,6 +188,28 @@ jobs:
                   print("  " + line)
           EOF
 
+      # PyPI, not git history, decides whether this version has shipped: that
+      # survives squash merges, multi-commit pushes, and a publish that failed.
+      # The version is the wheel's normalized METADATA one, which is what PyPI stores.
+      - name: Check whether this version is on PyPI
+        id: pypi
+        shell: bash
+        run: |
+          version="${{ steps.dist.outputs.version }}"
+          if [ -z "$version" ]; then
+            echo "::error::could not read Version from the built wheel"
+            exit 1
+          fi
+          status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/spark_sql_migrations/${version}/json")"
+          case "$status" in
+            200) echo "published=true" >> "$GITHUB_OUTPUT"; echo "${version} is already on PyPI" ;;
+            404) echo "published=false" >> "$GITHUB_OUTPUT"; echo "${version} is not on PyPI yet" ;;
+            # A PyPI outage must not fail CI on every branch; it just skips publishing.
+            *)   echo "published=unknown" >> "$GITHUB_OUTPUT"
+                 echo "::warning::PyPI returned HTTP ${status} for ${version}; skipping publish" ;;
+          esac
+
       - name: Upload distribution
         uses: actions/upload-artifact@v6
         with:
@@ -258,17 +279,27 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
 
+  # Bumping the version in the root BUILD and pushing it to main is the release:
+  # publish runs whenever main builds a version PyPI doesn't have yet, then tags it.
   publish-pypi:
-    # `build` is needed for its version output, not for ordering (verify-install
-    # already depends on it). needs.<job> is only in scope for jobs named here, so
-    # dropping it makes needs.build.outputs.version silently empty rather than an
-    # error -- which is how the tag guard below came to compare against "".
+    # `build` is needed for its outputs, not for ordering (verify-install already
+    # depends on it). needs.<job> is only in scope for jobs named here, so dropping
+    # it makes needs.build.outputs.* silently empty rather than an error -- and an
+    # empty `published` would then never equal 'false', so nothing would publish.
     needs: [build, verify-install]
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.build.outputs.published == 'false'
     runs-on: ubuntu-latest
     environment: pypi
+    # Two quick merges to main must not race to upload the same version.
+    concurrency:
+      group: publish-pypi
+      cancel-in-progress: false
     permissions:
       id-token: write
+      contents: write
     steps:
       - name: Download distribution
         uses: actions/download-artifact@v7
@@ -276,22 +307,18 @@ jobs:
           name: dist
           path: dist
 
-      # PyPI versions are immutable, so a tag that disagrees with the version in
-      # spark_sql_migrations/BUILD must stop the release rather than publish the wrong one.
-      - name: Check tag matches built version
-        shell: bash
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          built="${{ needs.build.outputs.version }}"
-          if [ -z "$built" ]; then
-            echo "::error::the build job reported no version; refusing to publish"
-            exit 1
-          fi
-          if [ "$tag" != "$built" ]; then
-            echo "::error::release tag ${GITHUB_REF_NAME} does not match built version ${built}"
-            exit 1
-          fi
-          echo "tag ${GITHUB_REF_NAME} matches built version ${built}"
-
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # A release created with GITHUB_TOKEN triggers no workflows, so this can't
+      # loop back into another run. Only the wheel and sdist are attached: the
+      # publish action leaves its attestation files in dist/ as well.
+      - name: Tag and create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" dist/*.whl dist/*.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "v${VERSION}" --generate-notes
