@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from jinja2.environment import Environment
 from jinja2.loaders import FileSystemLoader
 from jinja2.utils import select_autoescape
+
 from spark_sql_migrations.spark_sql.spark_sql import (
     ALL_SPARK,
     DBR_ONLY,
@@ -20,6 +21,7 @@ from spark_sql_migrations.spark_sql.spark_sql import (
     get_migrations_list,
     get_ordered_migration_objs,
     get_output_folder,
+    get_table_version,
     get_unapplied_migrations_list,
     main,
     migrate_initial,
@@ -170,10 +172,11 @@ def test_get_migrations_list_ignores_non_sql_files(parse_migration, get_ordered,
 @mock.patch(
     "spark_sql_migrations.spark_sql.spark_sql.uuid.uuid4", return_value=UUID(bytes=b"1111222233334444", version=4)
 )
-def test_create_new_migration_long_slug(_uuid, tmp_path):
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", side_effect=ValueError("testing"))
+def test_create_new_migration_long_slug(get_migrations_list, _uuid, tmp_path):
     template_path = tmp_path / "template.sql"
     with open(template_path, "w") as handle:
-        handle.write("-- revision_id:{{revision_id}};\n-- prev_revision_id:;\n")
+        handle.write("-- revision_id:{{revision_id}};\n-- prev_revision_id:{{prev_revision_id}};\n")
     output_path = tmp_path / f"{ALL_SPARK}_migrations"
     os.makedirs(output_path)
 
@@ -186,6 +189,38 @@ def test_create_new_migration_long_slug(_uuid, tmp_path):
     expected = output_path / "070707_a_very_long_message_that_certainly_runs_333334343434.sql"
     with open(expected) as result_file:
         assert "-- revision_id:333334343434;" in result_file.read()
+        result_file.seek(0)
+        assert "-- prev_revision_id:;" in result_file.read()
+    get_migrations_list.assert_called_once()
+
+
+@freeze_time("2007-07-07")
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.uuid.uuid4", return_value=UUID(bytes=b"1111222233334444", version=4)
+)
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_list",
+    return_value=[Migration(revision_id="7", prev_revision_id="", template_name="test")],
+)
+def test_create_new_migration_prev_rev(get_migrations_list, _uuid, tmp_path):
+    template_path = tmp_path / "template.sql"
+    with open(template_path, "w") as handle:
+        handle.write("-- revision_id:{{revision_id}};\n-- prev_revision_id:{{prev_revision_id}};\n")
+    output_path = tmp_path / f"{ALL_SPARK}_migrations"
+    os.makedirs(output_path)
+
+    create_new_migration(
+        "a very long message that certainly runs past the slug truncation limit",
+        template_path=str(template_path),
+        output_path=str(output_path),
+    )
+
+    expected = output_path / "070707_a_very_long_message_that_certainly_runs_333334343434.sql"
+    with open(expected) as result_file:
+        assert "-- revision_id:333334343434;" in result_file.read()
+        result_file.seek(0)
+        assert "-- prev_revision_id:7;" in result_file.read()
+    get_migrations_list.assert_called_once()
 
 
 def test_apply_template(tmp_path):
@@ -300,39 +335,13 @@ def test_main_defaults_output_under_cwd(getcwd, makedirs, get_spark_mock, run_mi
 
 
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
-def test_get_unapplied_migrations_list_no_table(get_migrations_list_mock, test_spark):
-    test_spark.sql("drop table if exists spark_catalog.default._spark_migrations_version")
-
-    result = get_unapplied_migrations_list(test_spark, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
-
-    assert result == ["testing"]
-    get_migrations_list_mock.assert_called_once_with("/i/am/a/fake/dir")
-
-
-@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])
-def test_get_unapplied_migrations_list_no_rows(get_migrations_list_mock, test_spark):
-    test_spark.sql(VERSION_TABLE_DDL)
-
-    result = get_unapplied_migrations_list(test_spark, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_table_version", return_value=None)
+def test_get_unapplied_migrations_list_no_table(get_table_version, get_migrations_list):
+    result = get_unapplied_migrations_list(None, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
 
     assert result == ["testing"]
-    get_migrations_list_mock.assert_called_once()
-
-
-@mock.patch(
-    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_list",
-    return_value=[Migration(revision_id="wont match", prev_revision_id=None, template_name="test1")],
-)
-def test_get_unapplied_migrations_list_no_match(get_migrations_list_mock, test_spark):
-    test_spark.sql(VERSION_TABLE_DDL)
-    test_spark.sql(
-        "insert into spark_catalog.default._spark_migrations_version(migration_type, version_num) "
-        "values('fake', 'non matching')"
-    )
-
-    with pytest.raises(ValueError, match="which matches no migration in"):
-        get_unapplied_migrations_list(test_spark, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
-    get_migrations_list_mock.assert_called_once()
+    get_migrations_list.assert_called_once_with("/i/am/a/fake/dir")
+    get_table_version.assert_called_once()
 
 
 @mock.patch(
@@ -342,17 +351,39 @@ def test_get_unapplied_migrations_list_no_match(get_migrations_list_mock, test_s
         Migration(revision_id="unapplied", prev_revision_id="55", template_name="test2"),
     ],
 )
-def test_get_unapplied_migrations_list_happy(get_migrations_list_mock, test_spark):
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_table_version", return_value={"version_num": "55"})
+def test_get_unapplied_migrations_list_no_rows(get_table_version, get_migrations_list):
+    result = get_unapplied_migrations_list(None, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
+
+    assert [migration.template_name for migration in result] == ["test2"]
+    get_migrations_list.assert_called_once()
+    get_table_version.assert_called_once()
+
+
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.get_migrations_list",
+    return_value=[Migration(revision_id="wont match", prev_revision_id=None, template_name="test1")],
+)
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_table_version", return_value={"version_num": "55"})
+def test_get_unapplied_migrations_list_no_match(get_table_version, get_migrations_list):
+    with pytest.raises(ValueError, match="which matches no migration in"):
+        get_unapplied_migrations_list(None, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
+    get_migrations_list.assert_called_once()
+    get_table_version.assert_called_once()
+
+
+def test_get_table_version_no_table(test_spark):
+    test_spark.sql("drop table if exists spark_catalog.default._spark_migrations_version")
+    assert get_table_version(test_spark, "fake", "spark_catalog", "default") is None
+
+
+def test_get_table_version(test_spark):
     test_spark.sql(VERSION_TABLE_DDL)
     test_spark.sql(
         "insert into spark_catalog.default._spark_migrations_version(migration_type, version_num) "
         "values('fake', '55')"
     )
-
-    result = get_unapplied_migrations_list(test_spark, "/i/am/a/fake/dir", "fake", "spark_catalog", "default")
-
-    assert [migration.template_name for migration in result] == ["test2"]
-    get_migrations_list_mock.assert_called_once()
+    assert get_table_version(test_spark, "fake", "spark_catalog", "default")["version_num"] == "55"
 
 
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.apply_template", return_value="select 1")

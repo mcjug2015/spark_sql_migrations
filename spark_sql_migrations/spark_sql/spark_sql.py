@@ -150,20 +150,20 @@ def get_migrations_list(migrations_dir):
     return get_ordered_migration_objs(migrations)
 
 
+def get_table_version(spark, migration_type, cat: str, schema: str):
+    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
+    if not spark.catalog.tableExists(version_table):
+        return None
+    return spark.read.table(version_table).where(col("migration_type") == migration_type).select("version_num").head()
+
+
 def get_unapplied_migrations_list(spark, migrations_dir, migration_type, cat: str, schema: str):
     """the tail of one chain after the revision VERSION_TABLE records for it.
 
     the whole chain when the table is missing or holds no row for this type.
     """
     ordered = get_migrations_list(migrations_dir)
-
-    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
-    if not spark.catalog.tableExists(version_table):
-        return ordered
-
-    current = (
-        spark.read.table(version_table).where(col("migration_type") == migration_type).select("version_num").head()
-    )
+    current = get_table_version(spark, migration_type, cat, schema)
     if not current:
         return ordered
 
@@ -180,9 +180,6 @@ def get_unapplied_migrations_list(spark, migrations_dir, migration_type, cat: st
 
 
 def create_new_migration(message: str, template_path: str, output_path: str, truncate_slug_length: int = 40):
-    """
-    TODO XXX start looking up prev revision id from db or files and including it
-    """
     rev_id = uuid.uuid4().hex[-12:]
 
     date_prefix = datetime.datetime.today().strftime("%y%m%d")
@@ -195,8 +192,15 @@ def create_new_migration(message: str, template_path: str, output_path: str, tru
 
     migration_path = os.path.join(output_path, migration_filename)
 
+    try:
+        ordered_migrations = get_migrations_list(output_path)
+        last_migration_rev_id = ordered_migrations[-1].revision_id if len(ordered_migrations) > 0 else ""
+    except ValueError:
+        last_migration_rev_id = ""
+
     default_migration_content = open(template_path).read()
     default_migration_content = default_migration_content.replace("{{revision_id}}", rev_id)
+    default_migration_content = default_migration_content.replace("{{prev_revision_id}}", last_migration_rev_id)
 
     with open(migration_path, "w") as migration_file:
         migration_file.write(default_migration_content)
@@ -327,7 +331,12 @@ def build_parser():  # pragma: no cover
 
     p_create = subparsers.add_parser("create_new_migration", help="create a new migration from the template")
     p_create.add_argument("--message", required=True)
-    p_create.add_argument("--output-path", required=True, help="the chain directory to write the new migration into")
+    p_create.add_argument(
+        "--output-path",
+        required=True,
+        help="the chain directory to write the new migration into. if sql files are in there, the last sql's rev_id"
+        "will be set as the new migrations prev_rev_id.",
+    )
     p_create.add_argument("--template-path", default=None, help="defaults to the template shipped in this package")
     p_create.set_defaults(func=_cli_create_new_migration)
 

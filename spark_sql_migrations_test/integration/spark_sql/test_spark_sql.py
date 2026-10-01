@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from unittest import mock
 
 from freezegun import freeze_time
@@ -18,15 +19,15 @@ CLIENT_MIGRATIONS_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "re
 def test_create_new_migration(tmp_path, request):
     logger.info(f"TEST: {request.node.name}; will be writing migrations under {tmp_path};")
     output_path = tmp_path / f"{spark_sql.ALL_SPARK}_migrations"
-    os.makedirs(output_path)
+    shutil.copytree(os.path.join(CLIENT_MIGRATIONS_ROOT, f"{spark_sql.ALL_SPARK}_migrations"), output_path)
     template_path = spark_sql.get_default_template_path()
 
     spark_sql.create_new_migration("integration test migration", template_path, str(output_path))
 
     migrations = spark_sql.get_migrations_list(str(output_path))
-    assert (len(migrations)) == 1
-    assert migrations[0].prev_revision_id is None
-    assert migrations[0].revision_id != ""
+    assert (len(migrations)) == 4
+    assert migrations[3].prev_revision_id == "c3d4e5f6a1b2"
+    assert migrations[3].revision_id != ""
 
 
 def test_run_migrations(test_spark, tmp_path):

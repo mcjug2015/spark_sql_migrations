@@ -10,6 +10,10 @@ log_cli_level = "INFO"
 [tool.isort]
 profile = "black"
 line_length = 120
+# Pinned, not left to isort's on-disk detection: pants runs isort in a sandbox holding only the
+# files being formatted, so the package dirs are not there to be found and these imports would be
+# classified third-party -- dropping the section break that isort run from the repo root adds.
+known_first_party = ["spark_sql_migrations", "spark_sql_migrations_test"]
 
 
 [tool.coverage.run]
@@ -20,5 +24,4 @@ branch = true
 exclude_also = [
     "@(abc\\.)?abstractmethod",
     "def __init__\\(.*\\):\\s*\\S",
-    "def get_\\w*\\(.*\\):\\s*\\S",
 ]
