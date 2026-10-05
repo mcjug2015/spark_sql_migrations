@@ -42,28 +42,32 @@ Migrations come from two different owners, and they behave differently:
 | | ships in the wheel | owned by you |
 |---|---|---|
 | **what** | catalog, schema, `_spark_migrations_version` table | your tables and columns |
-| **where** | `spark_sql_migrations/migrations_initial/` | `all_spark_migrations/`, `dbr_only_migrations/` |
-| **selected by** | filename suffix — `_all.sql` everywhere, `_dbr_only.sql` on Databricks | the `prev_revision_id` chain |
+| **where** | `spark_sql_migrations/migrations_initial/` | the directory you pass as `--migrations-dir` |
+| **ordered by** | filename | the `prev_revision_id` chain |
 | **when applied** | until the version table exists | once, then recorded |
 
 The bootstrap chain is applied on every run until `_spark_migrations_version` exists, and
 skipped from then on. A run that fails partway through bootstrapping replays it, so it must
-still be idempotent. Your own chains are applied once each and their head revision is
+still be idempotent. Your own migrations are applied once each and the head revision is
 written to the version table.
 
-## Laying out your chains
+Both kinds are rendered the same way, so both can gate a statement on `is_dbr` — the
+bootstrap chain uses it for `CREATE CATALOG`, which only Unity Catalog has.
 
-Point spark_sql_migrations at a directory holding one or both chains:
+## Laying out your chain
+
+`--migrations-dir` is the directory holding the chain — the `.sql` files sit in it directly:
 
 ```
 your_project/
-└── migrations/                 <- this is --migrations-dir
-    ├── all_spark_migrations/   <- runs everywhere
-    └── dbr_only_migrations/    <- runs only when is_dbr()
+└── migrations/        <- this is --migrations-dir
+    ├── 260831_01_create_test_table_e5ce0039b32b.sql
+    └── 260831_02_create_metrics_table_07990e2a101e.sql
 ```
 
-Choose deliberately. SQL that only Databricks understands must not live in
-`all_spark_migrations/`, or your local runs will break.
+One chain covers both engines: a Databricks-only *statement* gates on `is_dbr` inside a
+migration that otherwise runs everywhere — see below. SQL that only Databricks understands
+must never sit ungated there, or your local runs will break.
 
 ## Running migrations
 
@@ -90,7 +94,7 @@ from spark_sql_migrations.spark_sql.spark_sql import main
 
 
 def get_migrations_dir():
-    """the parent of this project's own migration chains."""
+    """the directory holding this project's own migration chain."""
     return os.path.dirname(__file__)
 
 
@@ -100,7 +104,7 @@ main(cat="spark_catalog", schema="default", migrations_dir=get_migrations_dir())
 `main` builds its own session via `get_spark()` and, being library code, leaves logging to
 you. To supply your own — a session already
 configured by your job, say — call `run_migrations(spark, cat, schema, output_folder,
-migrations_root)` directly.
+migrations_dir)` directly.
 
 Every rendered statement is written to a timestamped folder under `migrations_out/`
 before it is executed, so you can always read the exact SQL a run applied.
@@ -112,7 +116,7 @@ Generate one rather than hand-rolling the header:
 ```bash
 spark-sql-migrations create_new_migration \
     --message "add batch id to metrics" \
-    --output-path path/to/migrations/all_spark_migrations
+    --output-path path/to/migrations
 ```
 
 That writes `<yymmdd>_<slug>_<revision_id>.sql` from the template shipped in the package
@@ -150,6 +154,47 @@ begin
   alter table {{cat}}.{{schema}}.metrics add column metric_batch_id string;
 end;
 ```
+
+### Databricks-only statements
+
+`is_dbr` is in the render context, so a migration in the shared chain can carry SQL only
+Databricks understands:
+
+```sql
+-- revision_id:e8614b76da6d;
+-- prev_revision_id:57037b6c19b4;
+{% if is_dbr %}
+begin
+grant READ FILES on external location `some-bucket` to `some_group`;
+end;
+{% endif %}
+```
+
+`create_new_migration` writes that conditional for you with `--add-is-dbr`, below the
+headers so they stay readable:
+
+```bash
+spark-sql-migrations create_new_migration \
+    --message "read files on the cms zip external location" \
+    --output-path path/to/migrations \
+    --add-is-dbr
+```
+
+This has to happen at render time, not in SQL. OSS Spark rejects `GRANT` and the rest of
+its unsupported-native-command list while *parsing*, so a `declare exit handler` in the same
+script never gets the chance to run — and the whole script fails to compile, not just that
+statement. Jinja removes the text before `spark.sql()` ever sees it.
+
+A migration left holding nothing but comments is recorded in the version table and not
+executed, so the chain advances in step on both engines. That recording is forward-only: a
+catalog migrated locally past a gated revision will not pick that statement up if it is
+later migrated from Databricks. For disposable test schemas that is exactly what you want;
+for a long-lived catalog, don't migrate it from both.
+
+`_spark_migrations_version` holds one row and one column, `version_num`. There is no
+in-place upgrade from the older two-chain shape, which carried a `migration_type` column and
+a row per chain: a catalog bootstrapped by an earlier release has to be rebuilt from
+scratch, which also clears the revision history that layout recorded.
 
 ## Local vs Databricks
 
