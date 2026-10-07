@@ -11,7 +11,7 @@ METASTORE_DIR_ENV_VAR = "SPARK_METASTORE_DIR"
 DEFAULT_WAREHOUSE_DIRNAME = "spark-warehouse"
 
 
-def is_dbr():
+def is_dbr() -> bool:
     try:
         from pyspark.dbutils import DBUtils  # type: ignore # noqa: F401
 
@@ -21,7 +21,7 @@ def is_dbr():
         return False
 
 
-def get_warehouse_dir():
+def get_warehouse_dir() -> str:
     """where local (non-DBR) spark keeps its warehouse.
 
     resolved against the caller's cwd, never against __file__: installed from a
@@ -34,7 +34,7 @@ def get_warehouse_dir():
     )
 
 
-def get_spark(use_dbc=False):
+def get_spark(use_dbc: bool = False) -> SparkSession:
     if use_dbc or is_dbr():
         from databricks.connect.session import DatabricksSession  # type: ignore # pants: no-infer-dep
 
