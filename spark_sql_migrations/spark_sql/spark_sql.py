@@ -362,7 +362,6 @@ def build_parser() -> argparse.ArgumentParser:  # pragma: no cover
     # the %% are argparse's: it interpolates help strings
     p_create.add_argument(
         "--add-is-dbr",
-        type=bool,
         action="store_true",
         help="wrap the new migration's body in {%% if is_dbr %%}, for statements only databricks understands",
     )
