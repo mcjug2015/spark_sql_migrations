@@ -6,7 +6,7 @@ from unittest import mock
 from freezegun import freeze_time
 
 from spark_sql_migrations.spark_sql import spark_sql
-from spark_sql_migrations.spark_sql.spark_sql import CLIENT_OUTPUT_DIRNAME, Migration
+from spark_sql_migrations.spark_sql.spark_sql import CLIENT_OUTPUT_DIRNAME, VERSION_TABLE, Migration
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def test_run_migrations(test_spark, tmp_path):
         ],
     ):
         # run migrations w. all_spark capped to a single one
-        spark_sql.run_migrations(test_spark, "spark_catalog", "default", first_out, CLIENT_MIGRATIONS_DIR)
+        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", first_out, CLIENT_MIGRATIONS_DIR)
 
     results = [
         x.asDict()
@@ -83,7 +83,7 @@ def test_run_migrations(test_spark, tmp_path):
         ],
     ):
         # run migrations w. more all spark let through, the last of them gated to dbr
-        spark_sql.run_migrations(test_spark, "spark_catalog", "default", second_out, CLIENT_MIGRATIONS_DIR)
+        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", second_out, CLIENT_MIGRATIONS_DIR)
 
     results = [
         x.asDict()
@@ -104,4 +104,54 @@ def test_run_migrations(test_spark, tmp_path):
     # ever being run: this session has no such statement, so it would have failed.
     with open(second_client_out / "260901_04_widget_vol_gated_e5f6a1b2c3d4_primed.sql") as primed_file:
         statements = [line for line in primed_file.read().splitlines() if line.strip() and not line.startswith("--")]
+    assert statements == []
+
+
+# its own schema, so the version table this drives is not the one other tests advance
+CLI_SCHEMA = "cli_run"
+
+
+def _recorded_revision(spark) -> str:
+    version_table = f"spark_catalog.{CLI_SCHEMA}.{VERSION_TABLE}"
+    return spark.sql(f"select version_num from {version_table}").head()["version_num"]
+
+
+def _primed(run_folder) -> list[str]:
+    return sorted(os.listdir(run_folder / CLIENT_OUTPUT_DIRNAME))
+
+
+def test_cli_run_capped_then_to_head(test_spark, tmp_path, monkeypatch):
+    """the console entry point, twice: held to the chain's first revision, then let to head.
+
+    nothing is mocked here. --max-revision-id does the capping that otherwise needs
+    get_unapplied_migrations_list patched, so the real walk of the chain, the version
+    table and the is_dbr gate all stay in the test.
+    """
+    # _cli_main passes no output_parent_path, so a run lands under cwd/migrations_out
+    monkeypatch.chdir(tmp_path)
+    argv = ["run", "--schema", CLI_SCHEMA, "--migrations-dir", CLIENT_MIGRATIONS_DIR]
+
+    out_parent = tmp_path / "migrations_out"
+
+    spark_sql.cli(argv + ["--max-revision-id", "a1b2c3d4e5f6"])
+    assert _recorded_revision(test_spark) == "a1b2c3d4e5f6"
+    # which folder a run wrote is taken from when it appeared, never from its name:
+    # get_ascending_letters_within_minute does not in fact order two folders
+    (first,) = out_parent.iterdir()
+
+    spark_sql.cli(argv)
+    assert _recorded_revision(test_spark) == "e5f6a1b2c3d4"
+    (second,) = [run for run in out_parent.iterdir() if run != first]
+
+    assert _primed(first) == ["260901_01_create_widget_table_a1b2c3d4e5f6_primed.sql"]
+    assert _primed(second) == [
+        "260901_02_batch_id_for_widget_table_b2c3d4e5f6a1_primed.sql",
+        "260901_03_create_widget_kvp_table_c3d4e5f6a1b2_primed.sql",
+        "260901_04_widget_vol_gated_e5f6a1b2c3d4_primed.sql",
+    ]
+
+    # the gated migration reached head without its CREATE VOLUME ever being run:
+    # this session has no such statement, so it would have failed.
+    gated = second / CLIENT_OUTPUT_DIRNAME / "260901_04_widget_vol_gated_e5f6a1b2c3d4_primed.sql"
+    statements = [line for line in gated.read_text().splitlines() if line.strip() and not line.startswith("--")]
     assert statements == []
