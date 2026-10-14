@@ -286,7 +286,7 @@ def record_revision(spark: SparkSession, cat: str, schema: str, revision_id: str
     spark.sql(f"insert into {version_table} (version_num) values ('{revision_literal}')")
 
 
-def migrate_w_rev(spark: SparkSession, output_folder: str, migrations_dir: str, cat: str, schema: str) -> None:
+def upgrade(spark: SparkSession, output_folder: str, migrations_dir: str, cat: str, schema: str) -> None:
     """
     TODO XXX permit applying up to a revision below the head revision
     TODO XXX add backwards migrations, permit migrating backwards
@@ -308,7 +308,7 @@ def migrate_w_rev(spark: SparkSession, output_folder: str, migrations_dir: str, 
         logger.info(f"{migration.template_name} done; now at {migration.revision_id};")
 
 
-def run_migrations(spark: SparkSession, cat: str, schema: str, output_folder: str, migrations_dir: str) -> None:
+def run_upgrade(spark: SparkSession, cat: str, schema: str, output_folder: str, migrations_dir: str) -> None:
     initial_output_folder = os.path.join(output_folder, INITIAL_MIGRATIONS_PACKAGE_PATH)
     client_output_folder = os.path.join(output_folder, CLIENT_OUTPUT_DIRNAME)
     os.makedirs(initial_output_folder, exist_ok=True)
@@ -318,13 +318,13 @@ def run_migrations(spark: SparkSession, cat: str, schema: str, output_folder: st
         logger.info(f"{version_table} already exists; skipping the initial migrations;")
     else:
         migrate_initial(spark, initial_output_folder, cat, schema)
-    migrate_w_rev(spark, client_output_folder, migrations_dir, cat, schema)
+    upgrade(spark, client_output_folder, migrations_dir, cat, schema)
 
 
 def main(cat: str, schema: str, migrations_dir: str, output_parent_path: str | None = None) -> None:
     output_folder = get_output_folder(output_parent_path or os.path.join(os.getcwd(), "migrations_out"))
     os.makedirs(output_folder)
-    run_migrations(get_spark(), cat, schema, output_folder, migrations_dir)
+    run_upgrade(get_spark(), cat, schema, output_folder, migrations_dir)
 
 
 def _cli_main(cat: str, schema: str, migrations_dir: str) -> None:  # pragma: no cover
@@ -341,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:  # pragma: no cover
     parser = argparse.ArgumentParser(description="spark_sql_migrations migration utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    p_run = subparsers.add_parser("run", help="apply all pending migrations")
+    p_run = subparsers.add_parser("run", help="upgrade to head/apply pending migrations")
     p_run.add_argument("--cat", type=str, default="spark_catalog")
     p_run.add_argument("--schema", type=str, default="default")
     p_run.add_argument("--migrations-dir", type=str, required=True, help="the directory holding the migration chain")

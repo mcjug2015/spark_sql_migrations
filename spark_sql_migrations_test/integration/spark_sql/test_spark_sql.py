@@ -47,7 +47,7 @@ def test_run_migrations(test_spark, tmp_path):
         ],
     ):
         # run migrations w. all_spark capped to a single one
-        spark_sql.run_migrations(test_spark, "spark_catalog", "default", first_out, CLIENT_MIGRATIONS_DIR)
+        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", first_out, CLIENT_MIGRATIONS_DIR)
 
     results = [
         x.asDict()
@@ -83,7 +83,7 @@ def test_run_migrations(test_spark, tmp_path):
         ],
     ):
         # run migrations w. more all spark let through, the last of them gated to dbr
-        spark_sql.run_migrations(test_spark, "spark_catalog", "default", second_out, CLIENT_MIGRATIONS_DIR)
+        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", second_out, CLIENT_MIGRATIONS_DIR)
 
     results = [
         x.asDict()

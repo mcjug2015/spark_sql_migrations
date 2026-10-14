@@ -25,10 +25,10 @@ from spark_sql_migrations.spark_sql.spark_sql import (
     has_no_statements,
     main,
     migrate_initial,
-    migrate_w_rev,
     record_revision,
     render_and_apply,
-    run_migrations,
+    run_upgrade,
+    upgrade,
 )
 
 VERSION_TABLE_DDL = """
@@ -370,28 +370,28 @@ def test_render_and_apply_gated_out(apply_template_mock, has_no_statements_mock)
     has_no_statements_mock.assert_called_once_with("-- gated out;\n")
 
 
-def test_migrate_w_rev_no_chain_dir():
+def test_upgrade_no_chain_dir():
     """a chain the project doesn't supply is skipped.
 
     spark is None and nothing is patched: were the chain not skipped, the walk of
     a nonexistent directory would raise instead.
     """
-    assert migrate_w_rev(None, "/i/am/a/fake/out", "/i/am/a/fake/chain", "spark_catalog", "default") is None
+    assert upgrade(None, "/i/am/a/fake/out", "/i/am/a/fake/chain", "spark_catalog", "default") is None
 
 
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_output_folder", return_value="/i/am/a/fake/out")
-@mock.patch("spark_sql_migrations.spark_sql.spark_sql.run_migrations")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.run_upgrade")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_spark")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.os.makedirs")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.os.getcwd", return_value="/fake/cwd")
-def test_main_defaults_output_under_cwd(getcwd, makedirs, get_spark_mock, run_migrations_mock, get_output_folder_mock):
+def test_main_defaults_output_under_cwd(getcwd, makedirs, get_spark_mock, run_upgrade_mock, get_output_folder_mock):
     main("spark_catalog", "default", "/i/am/a/fake/chain")
 
     get_output_folder_mock.assert_called_once_with("/fake/cwd/migrations_out")
     getcwd.assert_called_once()
     makedirs.assert_called_once_with("/i/am/a/fake/out")
     get_spark_mock.assert_called_once()
-    run_migrations_mock.assert_called_once()
+    run_upgrade_mock.assert_called_once()
 
 
 def test_get_table_version_no_table(test_spark):
@@ -440,7 +440,7 @@ def test_record_revision(test_spark):
     "spark_sql_migrations.spark_sql.spark_sql.get_unapplied_migrations_list",
     return_value=[Migration(revision_id="55", prev_revision_id=None, template_name="test1")],
 )
-def test_migrate_w_rev(
+def test_upgrade(
     get_unapplied_migrations_list_mock,
     environment,
     render_and_apply_mock,
@@ -448,7 +448,7 @@ def test_migrate_w_rev(
     test_spark,
     tmp_path,
 ):
-    migrate_w_rev(test_spark, "/i/am/a/fake/out", str(tmp_path), "spark_catalog", "default")
+    upgrade(test_spark, "/i/am/a/fake/out", str(tmp_path), "spark_catalog", "default")
 
     get_unapplied_migrations_list_mock.assert_called_once_with(
         test_spark, str(tmp_path), cat="spark_catalog", schema="default"
@@ -464,19 +464,19 @@ def test_migrate_w_rev(
     record_revision_mock.assert_called_once_with(test_spark, "spark_catalog", "default", "55")
 
 
-@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_w_rev")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.upgrade")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_initial")
-def test_run_migrations_no_version_table(migrate_initial_mock, migrate_w_rev_mock, test_spark, tmp_path):
+def test_run_upgrade_no_version_table(migrate_initial_mock, upgrade_mock, test_spark, tmp_path):
     test_spark.sql("drop table if exists spark_catalog.default._spark_migrations_version")
     output_folder = str(tmp_path / "28818989_8182_BCDEQQ")
 
-    run_migrations(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/chain")
+    run_upgrade(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/chain")
 
     assert os.path.isdir(output_folder)
     migrate_initial_mock.assert_called_once_with(
         test_spark, os.path.join(output_folder, "migrations_initial"), "spark_catalog", "default"
     )
-    migrate_w_rev_mock.assert_called_once_with(
+    upgrade_mock.assert_called_once_with(
         test_spark,
         os.path.join(output_folder, CLIENT_OUTPUT_DIRNAME),
         "/i/am/a/fake/chain",
@@ -485,13 +485,13 @@ def test_run_migrations_no_version_table(migrate_initial_mock, migrate_w_rev_moc
     )
 
 
-@mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_w_rev")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.upgrade")
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.migrate_initial")
-def test_run_migrations_version_table_exists(migrate_initial_mock, migrate_w_rev_mock, test_spark, tmp_path):
+def test_run_upgrade_version_table_exists(migrate_initial_mock, upgrade_mock, test_spark, tmp_path):
     test_spark.sql(VERSION_TABLE_DDL)
     output_folder = str(tmp_path / "28818989_8182_BCDEQQ")
 
-    run_migrations(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/chain")
+    run_upgrade(test_spark, "spark_catalog", "default", output_folder, "/i/am/a/fake/chain")
 
     migrate_initial_mock.assert_not_called()
-    migrate_w_rev_mock.assert_called_once()
+    upgrade_mock.assert_called_once()
