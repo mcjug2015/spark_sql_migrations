@@ -9,12 +9,15 @@ from jinja2.loaders import FileSystemLoader
 from jinja2.utils import select_autoescape
 
 from spark_sql_migrations.spark_sql.spark_sql import (
+    ChainSummary,
     Migration,
     _parse_migration,
     apply_template,
     create_new_migration,
+    format_history,
     gate_on_is_dbr,
     get_ascending_letters_within_minute,
+    get_children_by_revision,
     get_default_template_path,
     get_migrations_list,
     get_ordered_migration_objs,
@@ -22,11 +25,13 @@ from spark_sql_migrations.spark_sql.spark_sql import (
     get_table_version,
     get_unapplied_migrations_list,
     has_no_statements,
+    history,
     main,
     migrate_initial,
     record_revision,
     render_and_apply,
     run_upgrade,
+    summarize_chain,
     upgrade,
 )
 
@@ -160,7 +165,7 @@ def test_get_migrations_list_ignores_non_sql_files(parse_migration, get_ordered,
     return_value=[Migration("7", None, "Q"), Migration("Q", "7", "P")],
 )
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql._parse_migration", return_value="testing")
-def test_get_migrations_max_rev(parse_migration, get_ordered, tmp_path):
+def test_get_migrations_list_max_rev(parse_migration, get_ordered, tmp_path):
     (tmp_path / "01_i_am_test.sql").touch()
 
     result = get_migrations_list(str(tmp_path), max_revision_id="7")
@@ -175,13 +180,86 @@ def test_get_migrations_max_rev(parse_migration, get_ordered, tmp_path):
     return_value=[Migration("7", None, "Q"), Migration("Q", "7", "P")],
 )
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql._parse_migration", return_value="testing")
-def test_get_migrations_max_rev_not_there(parse_migration, get_ordered, tmp_path):
+def test_get_migrations_list_max_rev_not_there(parse_migration, get_ordered, tmp_path):
     (tmp_path / "01_i_am_test.sql").touch()
 
     result = get_migrations_list(str(tmp_path), max_revision_id="not there")
     assert len(result) == 2
     parse_migration.assert_called_once()
     get_ordered.assert_called_once()
+
+
+def test_get_children_by_revision():
+    result = get_children_by_revision([Migration("A", "", "t1"), Migration("B", "A", "t2"), Migration("C", "A", "t3")])
+    assert {
+        "": [Migration(revision_id="A", prev_revision_id="", template_name="t1")],
+        "A": [
+            Migration(revision_id="B", prev_revision_id="A", template_name="t2"),
+            Migration(revision_id="C", prev_revision_id="A", template_name="t3"),
+        ],
+    }.items() <= result.items()
+
+
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.get_children_by_revision",
+    return_value={},
+)
+def test_test_summarize_chain_seen_twice(get_children_by_revision):
+    result = summarize_chain([Migration("A", "", "t1"), Migration("A", "", "t1")])
+    assert [x.revision_id for x in result.ordered] == ["A"]
+    assert [x.revision_id for x in result.heads] == ["A"]
+    assert [x.revision_id for x in result.roots] == ["A", "A"]
+    assert not result.branch_points
+    assert not result.orphans
+    get_children_by_revision.assert_called_once()
+
+
+@mock.patch(
+    "spark_sql_migrations.spark_sql.spark_sql.get_children_by_revision",
+    return_value={
+        "": [Migration("A", "", "t1")],
+        "A": [Migration("B", "A", "t2"), Migration("C", "A", "t3")],
+        "D": [Migration("D", "D", "t4")],
+    },
+)
+def test_summarize_chain(get_children_by_revision):
+    result = summarize_chain(
+        [Migration("A", "", "t1"), Migration("B", "A", "t2"), Migration("C", "A", "t3"), Migration("D", "D", "t4")]
+    )
+    assert [x.revision_id for x in result.ordered] == ["A", "B", "C", "D"]
+    assert [x.revision_id for x in result.heads] == ["B", "C"]
+    assert [x.revision_id for x in result.roots] == ["A"]
+    assert {
+        "A": [
+            Migration(revision_id="B", prev_revision_id="A", template_name="t2"),
+            Migration(revision_id="C", prev_revision_id="A", template_name="t3"),
+        ],
+    }.items() <= result.branch_points.items()
+    assert [x.revision_id for x in result.orphans] == ["D"]
+    get_children_by_revision.assert_called_once()
+
+
+def test_format_history_limit_error():
+    with pytest.raises(ValueError, match="history limit lists at least one migration"):
+        format_history(None, 0)
+
+
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.format_history_line", return_value=["A", "B"])
+def test_format_history(format_history_line):
+    result = format_history(ChainSummary([Migration("A", "", "t1")], [Migration("A", "", "t1")], [], {}, []), 100, True)
+    assert result == [["A", "B"]]
+    format_history_line.assert_called_once()
+
+
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.format_history", return_value="7")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.summarize_chain")
+@mock.patch("spark_sql_migrations.spark_sql.spark_sql.read_migrations_dir")
+def test_history(read_migrations_dir, summarize_chain, format_history):
+    result = history(None, -1, False)
+    assert result == "7"
+    format_history.assert_called_once()
+    summarize_chain.assert_called_once()
+    read_migrations_dir.assert_called_once()
 
 
 @mock.patch("spark_sql_migrations.spark_sql.spark_sql.get_migrations_list", return_value=["testing"])

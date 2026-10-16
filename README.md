@@ -109,6 +109,49 @@ migrations_dir)` directly.
 Every rendered statement is written to a timestamped folder under `migrations_out/`
 before it is executed, so you can always read the exact SQL a run applied.
 
+## Reading the chain
+
+```bash
+spark-sql-migrations history --migrations-dir path/to/migrations
+```
+
+Prints one line per migration, newest first, in alembic's shape — `prev -> rev, file`,
+with `<base>` standing in for the revision a root migration follows:
+
+```
+07990e2a101e -> 57037b6c19b4 (head), 260901_03_batch_id_for_metrics_e5ce0039b32b.sql
+e5ce0039b32b -> 07990e2a101e, 260831_02_create_metrics_table_07990e2a101e.sql
+<base> -> e5ce0039b32b, 260831_01_create_test_table_e5ce0039b32b.sql
+```
+
+| Flag | Effect |
+|---|---|
+| `-n`, `--limit` | list at most this many, counted from the end the listing starts at |
+| `--oldest-first` | walk from the root up instead of from the head down |
+
+`-n 5` with the default order gives the five newest; with `--oldest-first`, the five
+oldest. The files on disk are the whole of it: `history` reads no catalog and builds no
+session, so it needs no `--cat`, no `--schema` and no Spark flavour installed, and it says
+nothing about how far any catalog has been migrated.
+
+Unlike `run`, `history` refuses nothing — a chain it could not apply is exactly what you
+want it to describe. A fork is tagged where it happens and spelled out below the listing,
+which is kept whole even when `-n` cut the listing short:
+
+```
+c333 -> e555 (head), 260902_04_fork_the_chain_e555f1a2b3c4.sql
+c333 -> d444 (head), 260902_04_add_a_column_d444a1b2c3d4.sql
+b222 -> c333 (branchpoint), 260901_03_create_c_c333a1b2c3d4.sql
+split heads: d444, e555; a chain with more than one head cannot be applied until it is rejoined;
+c333 is the prev_revision_id of 260902_04_add_a_column_d444a1b2c3d4.sql, 260902_04_fork_the_chain_e555f1a2b3c4.sql;
+```
+
+Two migrations with an empty `prev_revision_id` (two chains in one directory) and
+migrations no root reaches (a cycle) get the same treatment. From Python,
+`history(migrations_dir, limit=None, oldest_first=False)` returns those same lines as a
+list, and `summarize_chain(read_migrations_dir(migrations_dir))` returns the heads, roots,
+branch points and orphans as objects.
+
 ## Writing a migration
 
 Generate one rather than hand-rolling the header:
