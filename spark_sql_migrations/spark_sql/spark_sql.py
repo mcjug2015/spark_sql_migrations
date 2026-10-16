@@ -27,7 +27,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from jinja2 import Environment, FileSystemLoader, PackageLoader, select_autoescape
 from pyspark.sql.session import SparkSession
@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 
 
 VERSION_TABLE = "_spark_migrations_version"
+# what `history` prints in place of the revision a root migration follows
+BASE_LABEL = "<base>"
 
 PACKAGE_NAME = "spark_sql_migrations"
 INITIAL_MIGRATIONS_PACKAGE_PATH = "migrations_initial"
@@ -56,6 +58,25 @@ class Migration:
     revision_id: str
     prev_revision_id: Optional[str]
     template_name: str
+
+
+@dataclass(frozen=True)
+class ChainSummary:
+    """a directory's chain as `history` found it, forks and all.
+
+    ``ordered`` is oldest first and holds every migration in the directory, so a
+    listing built from it never silently drops a file. Everything else is what
+    makes the chain unapplicable: more than one ``heads`` entry is a split head,
+    a ``branch_points`` entry is where it split, more than one ``roots`` entry is
+    a second chain in the same directory, and ``orphans`` are files no walk from
+    any root reaches -- a cycle, in practice.
+    """
+
+    ordered: List[Migration]
+    heads: List[Migration]
+    roots: List[Migration]
+    branch_points: Dict[str, List[Migration]]
+    orphans: List[Migration]
 
 
 def get_default_template_path() -> str:
@@ -137,6 +158,23 @@ def get_ordered_migration_objs(migration_objs: List[Migration]) -> List[Migratio
     return ordered
 
 
+def read_migrations_dir(migrations_dir: str) -> List[Migration]:
+    """every .sql file in one directory, parsed, in filename order and unwalked.
+
+    the headers are all this reads, so a chain that forks or points at nothing
+    comes back whole -- it is `get_ordered_migration_objs` that insists on a
+    single walkable chain, and `history` that reports one which is not.
+    """
+    if not os.path.isdir(migrations_dir):
+        raise ValueError(f"no migrations dir at {migrations_dir};")
+
+    return [
+        _parse_migration(migrations_dir, template_name)
+        for template_name in sorted(os.listdir(migrations_dir))
+        if template_name.endswith(".sql")
+    ]
+
+
 def get_migrations_list(migrations_dir: str, max_revision_id: Optional[str] = None) -> List[Migration]:
     """every migration in one directory, walked from its root to its head.
 
@@ -145,14 +183,7 @@ def get_migrations_list(migrations_dir: str, max_revision_id: Optional[str] = No
     carries is not an error -- the whole chain comes back, same as for no revision
     at all.
     """
-    if not os.path.isdir(migrations_dir):
-        raise ValueError(f"no migrations dir at {migrations_dir};")
-
-    migrations = [
-        _parse_migration(migrations_dir, template_name)
-        for template_name in sorted(os.listdir(migrations_dir))
-        if template_name.endswith(".sql")
-    ]
+    migrations = read_migrations_dir(migrations_dir)
     if not migrations:
         return []
 
@@ -165,6 +196,92 @@ def get_migrations_list(migrations_dir: str, max_revision_id: Optional[str] = No
             return ordered[: index + 1]
 
     return ordered
+
+
+def get_children_by_revision(migrations: List[Migration]) -> Dict[Optional[str], List[Migration]]:
+    """each revision's followers, keyed by the revision they follow.
+
+    the root's followers sit under None. A revision with two followers is a fork,
+    which is why this returns a list and not one migration.
+    """
+    children: Dict[Optional[str], List[Migration]] = {}
+    for migration in sorted(migrations, key=lambda migration: migration.template_name):
+        children.setdefault(migration.prev_revision_id, []).append(migration)
+    return children
+
+
+def summarize_chain(migrations: List[Migration]) -> ChainSummary:
+    """walk a chain for reading rather than for applying.
+
+    this raises nothing: a fork, a second root or a revision following one no file
+    carries is what the caller asked to be shown, not a reason to refuse. The walk
+    is depth first from each root, so one branch of a fork is listed to its head
+    before the next branch starts, and a revision already listed is not listed
+    again -- which is what keeps a cycle from looping here.
+    """
+    children = get_children_by_revision(migrations)
+    known_revisions = {migration.revision_id for migration in migrations}
+    roots = [
+        migration
+        for migration in sorted(migrations, key=lambda migration: migration.template_name)
+        if not migration.prev_revision_id or migration.prev_revision_id not in known_revisions
+    ]
+
+    ordered: List[Migration] = []
+    seen: Set[Migration] = set()
+    stack = list(reversed(roots))
+    while stack:
+        migration = stack.pop()
+        if migration in seen:
+            continue
+        seen.add(migration)
+        ordered.append(migration)
+        stack.extend(reversed(children.get(migration.revision_id, [])))
+
+    # orphan - somehow comes from no root
+    orphans = [migration for migration in migrations if migration not in seen]
+    ordered.extend(sorted(orphans, key=lambda migration: migration.template_name))
+
+    return ChainSummary(
+        ordered=ordered,
+        heads=[migration for migration in ordered if not children.get(migration.revision_id)],
+        roots=roots,
+        branch_points={
+            revision_id: followers for revision_id, followers in children.items() if revision_id and len(followers) > 1
+        },
+        orphans=orphans,
+    )
+
+
+def format_history(summary: ChainSummary, limit: Optional[int] = None, oldest_first: bool = False) -> List[str]:
+    """the listing, newest first like alembic's unless asked for the other end.
+
+    ``limit`` cuts from the far end, so it keeps the newest with the default order
+    and the oldest with ``oldest_first`` -- either way, the end the listing starts
+    at is the end that survives. The notes are appended whole, even to a listing
+    cut short, because a split head is the thing worth seeing most.
+    """
+    if limit is not None and limit < 1:
+        raise ValueError(f"a history limit lists at least one migration, got {limit};")
+
+    ordered = summary.ordered if oldest_first else list(reversed(summary.ordered))
+    if limit is not None:
+        ordered = ordered[:limit]
+
+    head_revisions = {migration.revision_id for migration in summary.heads}
+    branch_point_revisions = set(summary.branch_points)
+    lines = [format_history_line(migration, head_revisions, branch_point_revisions) for migration in ordered]
+    return lines + format_chain_notes(summary)
+
+
+def history(migrations_dir: str, limit: Optional[int] = None, oldest_first: bool = False) -> List[str]:
+    """the chain in one directory, as lines ready to be printed.
+
+    the files on disk are the whole of it: no catalog is read and no session is
+    built, so a chain can be read anywhere, whatever any catalog has been migrated
+    to. `get_table_version` is what says where a catalog actually stands.
+    """
+    return format_history(summarize_chain(read_migrations_dir(migrations_dir)), limit=limit, oldest_first=oldest_first)
 
 
 def get_table_version(spark: SparkSession, cat: str, schema: str) -> Optional[Row]:
@@ -359,6 +476,45 @@ def run_upgrade(
     upgrade(spark, client_output_folder, migrations_dir, cat, schema, max_revision_id)
 
 
+def format_history_line(
+    migration: Migration, head_revisions: Set[str], branch_point_revisions: Set[str]
+) -> str:  # pragma: no cover
+    """one alembic-shaped line: `prev -> rev (tags), filename`."""
+    tags = []
+    if migration.revision_id in head_revisions:
+        tags.append("head")
+    if migration.revision_id in branch_point_revisions:
+        tags.append("branchpoint")
+    tag_text = f" ({', '.join(tags)})" if tags else ""
+    return f"{migration.prev_revision_id or BASE_LABEL} -> {migration.revision_id}{tag_text}, {migration.template_name}"
+
+
+def format_chain_notes(summary: ChainSummary) -> List[str]:  # pragma: no cover
+    """what is wrong with this chain, below the listing, or nothing if it is sound."""
+    notes = []
+    if len(summary.heads) > 1:
+        notes.append(
+            f"split heads: {', '.join(migration.revision_id for migration in summary.heads)}; "
+            f"a chain with more than one head cannot be applied until it is rejoined;"
+        )
+    for revision_id, followers in sorted(summary.branch_points.items()):
+        notes.append(
+            f"{revision_id} is the prev_revision_id of "
+            f"{', '.join(migration.template_name for migration in followers)};"
+        )
+    if len(summary.roots) > 1:
+        notes.append(
+            f"more than one root: {', '.join(migration.template_name for migration in summary.roots)}; "
+            f"a chain has exactly one migration following no other;"
+        )
+    if summary.orphans:
+        notes.append(
+            f"no root reaches {', '.join(migration.template_name for migration in summary.orphans)}; "
+            f"they are listed together at the tail end of the chain order, having none of their own;"
+        )
+    return notes
+
+
 def main(
     cat: str,
     schema: str,
@@ -381,6 +537,12 @@ def _cli_create_new_migration(
     message: str, output_path: str, template_path: str, add_is_dbr: bool
 ) -> None:  # pragma: no cover
     create_new_migration(message, template_path or get_default_template_path(), output_path, add_is_dbr=add_is_dbr)
+
+
+def _cli_history(migrations_dir: str, limit: Optional[int], oldest_first: bool) -> None:  # pragma: no cover
+    """the listing goes to stdout, so it pipes; the log records go to stderr as always."""
+    for line in history(migrations_dir, limit=limit, oldest_first=oldest_first):
+        print(line)
 
 
 def build_parser() -> argparse.ArgumentParser:  # pragma: no cover
@@ -418,6 +580,22 @@ def build_parser() -> argparse.ArgumentParser:  # pragma: no cover
         help="wrap the new migration's body in {%% if is_dbr %%}, for statements only databricks understands",
     )
     p_create.set_defaults(func=_cli_create_new_migration)
+
+    p_history = subparsers.add_parser("history", help="list the migration chain on disk, newest first")
+    p_history.add_argument("--migrations-dir", type=str, required=True, help="the directory holding the chain")
+    p_history.add_argument(
+        "-n",
+        "--limit",
+        type=int,
+        default=None,
+        help="list at most this many migrations, counted from the end the listing starts at",
+    )
+    p_history.add_argument(
+        "--oldest-first",
+        action="store_true",
+        help="list from the root up instead of from the head down",
+    )
+    p_history.set_defaults(func=_cli_history)
 
     return parser
 

@@ -14,6 +14,35 @@ logger = logging.getLogger(__name__)
 # template, the client owns the chain this points at.
 CLIENT_MIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "res", "migrations")
 
+# the client chain as `history` lists it, root up. For a sound chain this is the whole
+# of the output: format_chain_notes appends nothing when there is nothing wrong with it.
+CHAIN_LISTING_OLDEST_FIRST = [
+    "<base> -> a1b2c3d4e5f6, 260901_01_create_widget_table_a1b2c3d4e5f6.sql",
+    "a1b2c3d4e5f6 -> b2c3d4e5f6a1, 260901_02_batch_id_for_widget_table_b2c3d4e5f6a1.sql",
+    "b2c3d4e5f6a1 -> c3d4e5f6a1b2, 260901_03_create_widget_kvp_table_c3d4e5f6a1b2.sql",
+    "c3d4e5f6a1b2 -> e5f6a1b2c3d4 (head), 260901_04_widget_vol_gated_e5f6a1b2c3d4.sql",
+]
+
+
+def _listed(capsys, *flags: str) -> list[str]:
+    """one history run through the console entry point, as the lines it printed."""
+    spark_sql.cli(["history", "--migrations-dir", CLIENT_MIGRATIONS_DIR, *flags])
+    return capsys.readouterr().out.splitlines()
+
+
+def test_cli_history(capsys):
+    """the history subcommand over the client chain: argparse wiring, order, limit, stdout.
+
+    no session is built and no catalog is read, so this says nothing about where any
+    catalog stands -- only what the files on disk chain up to. The two capped runs are
+    what show the limit cutting from the far end, so the listing keeps the end it
+    started at rather than always the oldest.
+    """
+    assert _listed(capsys) == list(reversed(CHAIN_LISTING_OLDEST_FIRST))
+    assert _listed(capsys, "--oldest-first") == CHAIN_LISTING_OLDEST_FIRST
+    assert _listed(capsys, "-n", "2") == list(reversed(CHAIN_LISTING_OLDEST_FIRST))[:2]
+    assert _listed(capsys, "--oldest-first", "-n", "2") == CHAIN_LISTING_OLDEST_FIRST[:2]
+
 
 @freeze_time("2007-07-07")
 def test_create_new_migration(tmp_path, request):
