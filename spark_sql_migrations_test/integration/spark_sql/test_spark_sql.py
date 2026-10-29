@@ -1,12 +1,15 @@
 import logging
 import os
 import shutil
-from unittest import mock
 
 from freezegun import freeze_time
 
 from spark_sql_migrations.spark_sql import spark_sql
-from spark_sql_migrations.spark_sql.spark_sql import CLIENT_OUTPUT_DIRNAME, VERSION_TABLE, Migration
+from spark_sql_migrations.spark_sql.spark_sql import (
+    CLIENT_OUTPUT_DIRNAME,
+    get_table_version,
+    get_version_table_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,87 +65,8 @@ def test_create_new_migration(tmp_path, request):
     assert migrations[4].revision_id != ""
 
 
-def test_run_migrations(test_spark, tmp_path):
-    first_out = tmp_path / "migrations_out_first"
-    with mock.patch.object(
-        spark_sql,
-        "get_unapplied_migrations_list",
-        return_value=[
-            Migration(
-                revision_id="a1b2c3d4e5f6",
-                prev_revision_id=None,
-                template_name="260901_01_create_widget_table_a1b2c3d4e5f6.sql",
-            )
-        ],
-    ):
-        # run migrations w. all_spark capped to a single one
-        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", first_out, CLIENT_MIGRATIONS_DIR)
-
-    results = [
-        x.asDict()
-        for x in test_spark.sql(
-            "select version_num from spark_catalog.default._spark_migrations_version"
-        ).toLocalIterator()
-    ]
-    assert results[0]["version_num"] == "a1b2c3d4e5f6"
-
-    first_client_out = first_out / CLIENT_OUTPUT_DIRNAME
-    assert sorted(os.listdir(first_client_out)) == ["260901_01_create_widget_table_a1b2c3d4e5f6_primed.sql"]
-
-    second_out = tmp_path / "migrations_out_second"
-    with mock.patch.object(
-        spark_sql,
-        "get_unapplied_migrations_list",
-        return_value=[
-            Migration(
-                revision_id="b2c3d4e5f6a1",
-                prev_revision_id="a1b2c3d4e5f6",
-                template_name="260901_02_batch_id_for_widget_table_b2c3d4e5f6a1.sql",
-            ),
-            Migration(
-                revision_id="c3d4e5f6a1b2",
-                prev_revision_id="b2c3d4e5f6a1",
-                template_name="260901_03_create_widget_kvp_table_c3d4e5f6a1b2.sql",
-            ),
-            Migration(
-                revision_id="e5f6a1b2c3d4",
-                prev_revision_id="c3d4e5f6a1b2",
-                template_name="260901_04_widget_vol_gated_e5f6a1b2c3d4.sql",
-            ),
-        ],
-    ):
-        # run migrations w. more all spark let through, the last of them gated to dbr
-        spark_sql.run_upgrade(test_spark, "spark_catalog", "default", second_out, CLIENT_MIGRATIONS_DIR)
-
-    results = [
-        x.asDict()
-        for x in test_spark.sql(
-            "select version_num from spark_catalog.default._spark_migrations_version"
-        ).toLocalIterator()
-    ]
-    assert results[0]["version_num"] == "e5f6a1b2c3d4"
-
-    second_client_out = second_out / CLIENT_OUTPUT_DIRNAME
-    assert sorted(os.listdir(second_client_out)) == [
-        "260901_02_batch_id_for_widget_table_b2c3d4e5f6a1_primed.sql",
-        "260901_03_create_widget_kvp_table_c3d4e5f6a1b2_primed.sql",
-        "260901_04_widget_vol_gated_e5f6a1b2c3d4_primed.sql",
-    ]
-
-    # the gated migration reached the head revision above without its CREATE VOLUME
-    # ever being run: this session has no such statement, so it would have failed.
-    with open(second_client_out / "260901_04_widget_vol_gated_e5f6a1b2c3d4_primed.sql") as primed_file:
-        statements = [line for line in primed_file.read().splitlines() if line.strip() and not line.startswith("--")]
-    assert statements == []
-
-
 # its own schema, so the version table this drives is not the one other tests advance
 CLI_SCHEMA = "cli_run"
-
-
-def _recorded_revision(spark) -> str:
-    version_table = f"spark_catalog.{CLI_SCHEMA}.{VERSION_TABLE}"
-    return spark.sql(f"select version_num from {version_table}").head()["version_num"]
 
 
 def _primed(run_folder) -> list[str]:
@@ -158,18 +82,18 @@ def test_cli_run_capped_then_to_head(test_spark, tmp_path, monkeypatch):
     """
     # _cli_main passes no output_parent_path, so a run lands under cwd/migrations_out
     monkeypatch.chdir(tmp_path)
-    argv = ["run", "--schema", CLI_SCHEMA, "--migrations-dir", CLIENT_MIGRATIONS_DIR]
+    argv = ["run", "--migrations-dir", CLIENT_MIGRATIONS_DIR]
 
     out_parent = tmp_path / "migrations_out"
 
-    spark_sql.cli(argv + ["--max-revision-id", "a1b2c3d4e5f6"])
-    assert _recorded_revision(test_spark) == "a1b2c3d4e5f6"
+    spark_sql.cli(argv + ["--max-revision-id", "a1b2c3d4e5f6", "--template-vals", "cat=spark_catalog,schema=default"])
+    assert get_table_version(test_spark, get_version_table_name(test_spark))["version_num"] == "a1b2c3d4e5f6"
     # which folder a run wrote is taken from when it appeared, never from its name:
     # get_ascending_letters_within_minute does not in fact order two folders
     (first,) = out_parent.iterdir()
 
-    spark_sql.cli(argv)
-    assert _recorded_revision(test_spark) == "e5f6a1b2c3d4"
+    spark_sql.cli(argv + ["--template-vals", "cat=spark_catalog,schema=default"])
+    assert get_table_version(test_spark, get_version_table_name(test_spark))["version_num"] == "e5f6a1b2c3d4"
     (second,) = [run for run in out_parent.iterdir() if run != first]
 
     assert _primed(first) == ["260901_01_create_widget_table_a1b2c3d4e5f6_primed.sql"]

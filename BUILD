@@ -34,7 +34,7 @@ python_distribution(
     sdist=True,
     provides=setup_py(
         name="spark_sql_migrations",
-        version="0.0.9",
+        version="0.1.0",
         description="Chained, idempotent SQL migrations for Spark and Databricks.",
         author="Victor Semenov",
         # A bare SPDX string, deliberately without a "License :: OSI Approved ::"
