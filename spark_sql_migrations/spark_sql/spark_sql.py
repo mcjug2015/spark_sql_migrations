@@ -44,7 +44,6 @@ __DO_NOT_USE_VERSION_TABLE = "_spark_migrations_version"
 BASE_LABEL = "<base>"
 
 PACKAGE_NAME = "spark_sql_migrations"
-INITIAL_MIGRATIONS_PACKAGE_PATH = "migrations_initial"
 # where a run's rendered client migrations land, under its output folder
 CLIENT_OUTPUT_DIRNAME = "migrations"
 TEMPLATES_PACKAGE_PATH = "migration_templates"
@@ -468,13 +467,11 @@ def run_upgrade(
     max_revision_id: Optional[str] = None,
     template_vals: Optional[Dict[str, str]] = None,
 ) -> None:
-    initial_output_folder = os.path.join(output_folder, INITIAL_MIGRATIONS_PACKAGE_PATH)
     client_output_folder = os.path.join(output_folder, CLIENT_OUTPUT_DIRNAME)
-    os.makedirs(initial_output_folder, exist_ok=True)
     os.makedirs(client_output_folder, exist_ok=True)
     version_table_name = get_version_table_name(spark)
     if spark.catalog.tableExists(version_table_name):
-        logger.info(f"{version_table_name} already exists; skipping the initial migrations;")
+        logger.info(f"{version_table_name} already exists;")
     else:
         spark.sql(f"create table if not exists {version_table_name}(version_num string not null);")
     upgrade(spark, version_table_name, client_output_folder, migrations_dir, max_revision_id, template_vals)

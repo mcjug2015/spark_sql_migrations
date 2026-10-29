@@ -19,11 +19,10 @@ CONSOLE_SCRIPT = "spark-sql-migrations"
 def check_package_data():
     """the .sql files must travel in the wheel or PackageLoader finds nothing."""
     files = importlib.resources.files("spark_sql_migrations")
-    for package_path in ("migrations_initial", "migration_templates"):
-        if not (files / package_path).is_dir():
-            raise AssertionError(f"{package_path} missing from the installed package")
-    initial = sorted(p.name for p in (files / "migrations_initial").iterdir())
-    print(f"  package data: {len(initial)} initial migrations, first is {initial[0]}")
+    if not (files / "migration_templates").is_dir():
+        raise AssertionError("migration_templates missing from the installed package")
+    templates = sorted(path.name for path in (files / "migration_templates").iterdir())
+    print(f"  package data: {len(templates)} migration templates, first is {templates[0]}")
 
 
 def check_console_script_declared():
