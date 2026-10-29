@@ -29,7 +29,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
-from jinja2 import Environment, FileSystemLoader, PackageLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import Row
 
@@ -38,12 +38,12 @@ from spark_sql_migrations.spark_utils import get_spark, is_dbr
 logger = logging.getLogger(__name__)
 
 
-VERSION_TABLE = "_spark_migrations_version"
+# value returned by get_version_table_name from start of run should have been passed in to you
+__DO_NOT_USE_VERSION_TABLE = "_spark_migrations_version"
 # what `history` prints in place of the revision a root migration follows
 BASE_LABEL = "<base>"
 
 PACKAGE_NAME = "spark_sql_migrations"
-INITIAL_MIGRATIONS_PACKAGE_PATH = "migrations_initial"
 # where a run's rendered client migrations land, under its output folder
 CLIENT_OUTPUT_DIRNAME = "migrations"
 TEMPLATES_PACKAGE_PATH = "migration_templates"
@@ -77,6 +77,11 @@ class ChainSummary:
     roots: List[Migration]
     branch_points: Dict[str, List[Migration]]
     orphans: List[Migration]
+
+
+def get_version_table_name(spark: SparkSession) -> str:
+    # only correct ar start of run
+    return f"{spark.catalog.currentCatalog()}.{spark.catalog.currentDatabase()}._spark_migrations_version"
 
 
 def get_default_template_path() -> str:
@@ -284,19 +289,19 @@ def history(migrations_dir: str, limit: Optional[int] = None, oldest_first: bool
     return format_history(summarize_chain(read_migrations_dir(migrations_dir)), limit=limit, oldest_first=oldest_first)
 
 
-def get_table_version(spark: SparkSession, cat: str, schema: str) -> Optional[Row]:
+def get_table_version(spark: SparkSession, version_table_name: str) -> Optional[Row]:
     """the revision VERSION_TABLE records, or None if it holds no row yet."""
-    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
+    version_table = f"{version_table_name}"
     if not spark.catalog.tableExists(version_table):
         return None
     return spark.read.table(version_table).select("version_num").head()
 
 
 def get_unapplied_migrations_list(
-    spark: SparkSession, migrations_dir: str, cat: str, schema: str, max_revision_id: Optional[str] = None
+    spark: SparkSession, version_table_name, migrations_dir: str, max_revision_id: Optional[str] = None
 ) -> List[Migration]:
     ordered = get_migrations_list(migrations_dir, max_revision_id)
-    current = get_table_version(spark, cat, schema)
+    current = get_table_version(spark, version_table_name)
     if not current:
         return ordered
 
@@ -304,7 +309,7 @@ def get_unapplied_migrations_list(
 
     if not ordered:
         logger.warning(
-            f"{VERSION_TABLE} is at {current_revision_id}, but {migrations_dir} holds no migrations; "
+            f"{version_table_name} is at {current_revision_id}, but {migrations_dir} holds no migrations; "
             f"treating the chain as retired;"
         )
         return ordered
@@ -313,7 +318,9 @@ def get_unapplied_migrations_list(
         if migration.revision_id == current_revision_id:
             return ordered[index + 1 :]
 
-    raise ValueError(f"{VERSION_TABLE} is at {current_revision_id}, which matches no migration in {migrations_dir};")
+    raise ValueError(
+        f"{version_table_name} is at {current_revision_id}, which matches no migration in {migrations_dir};"
+    )
 
 
 def gate_on_is_dbr(migration_content: str) -> str:
@@ -364,8 +371,15 @@ def create_new_migration(
         migration_file.write(default_migration_content)
 
 
-def apply_template(output_dir: str, template, cat: str, schema: str) -> str:
-    result_sql = template.render(cat=cat, schema=schema, is_dbr=is_dbr())
+def apply_template(
+    output_dir: str,
+    template,
+    template_vals: Optional[Dict[str, str]] = None,
+) -> str:
+    prep: Dict[str, str | bool] = {}
+    prep.update(template_vals or {})
+    prep["is_dbr"] = is_dbr()
+    result_sql = template.render(**prep)
     with open(os.path.join(output_dir, template.name.replace(".sql", "_primed.sql")), "w") as file_handle:
         file_handle.write(result_sql)
     return result_sql
@@ -395,43 +409,33 @@ def has_no_statements(rendered_sql: str) -> bool:
     return True
 
 
-def render_and_apply(spark: SparkSession, output_folder: str, template, cat: str, schema: str) -> None:
+def render_and_apply(
+    spark: SparkSession,
+    output_folder: str,
+    template,
+    template_vals: Optional[Dict[str, str]] = None,
+) -> None:
     """render one migration and run it, unless this engine was gated out of it."""
-    result_sql = apply_template(output_folder, template, cat=cat, schema=schema)
+    result_sql = apply_template(output_folder, template, template_vals)
     if has_no_statements(result_sql):
         logger.info(f"{template.name} rendered no statements; nothing to apply here;")
         return
     spark.sql(result_sql)
 
 
-def migrate_initial(spark: SparkSession, output_folder: str, cat: str, schema: str) -> None:
-    """apply the package's own bootstrap chain, in filename order rather than by revision."""
-    env = Environment(
-        loader=PackageLoader(package_name=PACKAGE_NAME, package_path=INITIAL_MIGRATIONS_PACKAGE_PATH),
-        autoescape=select_autoescape(),
-    )
-    all_templates = env.list_templates(extensions=["sql"])
-
-    logger.info(f"found {len(all_templates)} migrations; first five are {all_templates[:5]};")
-    for template_name in all_templates:
-        render_and_apply(spark, output_folder, env.get_template(template_name), cat=cat, schema=schema)
-    logger.info(f"rendered {len(all_templates)} initial migrations;")
-
-
-def record_revision(spark: SparkSession, cat: str, schema: str, revision_id: str) -> None:
-    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
+def record_revision(spark: SparkSession, version_table_name: str, revision_id: str) -> None:
     revision_literal = revision_id.replace("'", "''")
-    spark.sql(f"delete from {version_table}")
-    spark.sql(f"insert into {version_table} (version_num) values ('{revision_literal}')")
+    spark.sql(f"delete from {version_table_name}")
+    spark.sql(f"insert into {version_table_name} (version_num) values ('{revision_literal}')")
 
 
 def upgrade(
     spark: SparkSession,
+    version_table_name: str,
     output_folder: str,
     migrations_dir: str,
-    cat: str,
-    schema: str,
     max_revision_id: Optional[str] = None,
+    template_vals: Optional[Dict[str, str]] = None,
 ) -> None:
     """
     TODO XXX permit applying up to a revision below the head revision
@@ -441,7 +445,7 @@ def upgrade(
         logger.info(f"no chain at {migrations_dir}; skipping it;")
         return
     unapplied = get_unapplied_migrations_list(
-        spark, migrations_dir, cat=cat, schema=schema, max_revision_id=max_revision_id
+        spark, version_table_name, migrations_dir, max_revision_id=max_revision_id
     )
 
     logger.info(
@@ -451,29 +455,26 @@ def upgrade(
 
     env = Environment(loader=FileSystemLoader(migrations_dir), autoescape=select_autoescape())
     for migration in unapplied:
-        render_and_apply(spark, output_folder, env.get_template(migration.template_name), cat=cat, schema=schema)
-        record_revision(spark, cat, schema, migration.revision_id)
+        render_and_apply(spark, output_folder, env.get_template(migration.template_name), template_vals)
+        record_revision(spark, version_table_name, migration.revision_id)
         logger.info(f"{migration.template_name} done; now at {migration.revision_id};")
 
 
 def run_upgrade(
     spark: SparkSession,
-    cat: str,
-    schema: str,
     output_folder: str,
     migrations_dir: str,
     max_revision_id: Optional[str] = None,
+    template_vals: Optional[Dict[str, str]] = None,
 ) -> None:
-    initial_output_folder = os.path.join(output_folder, INITIAL_MIGRATIONS_PACKAGE_PATH)
     client_output_folder = os.path.join(output_folder, CLIENT_OUTPUT_DIRNAME)
-    os.makedirs(initial_output_folder, exist_ok=True)
     os.makedirs(client_output_folder, exist_ok=True)
-    version_table = f"{cat}.{schema}.{VERSION_TABLE}"
-    if spark.catalog.tableExists(version_table):
-        logger.info(f"{version_table} already exists; skipping the initial migrations;")
+    version_table_name = get_version_table_name(spark)
+    if spark.catalog.tableExists(version_table_name):
+        logger.info(f"{version_table_name} already exists;")
     else:
-        migrate_initial(spark, initial_output_folder, cat, schema)
-    upgrade(spark, client_output_folder, migrations_dir, cat, schema, max_revision_id)
+        spark.sql(f"create table if not exists {version_table_name}(version_num string not null);")
+    upgrade(spark, version_table_name, client_output_folder, migrations_dir, max_revision_id, template_vals)
 
 
 def format_history_line(
@@ -516,21 +517,23 @@ def format_chain_notes(summary: ChainSummary) -> List[str]:  # pragma: no cover
 
 
 def main(
-    cat: str,
-    schema: str,
     migrations_dir: str,
     output_parent_path: Optional[str] = None,
     max_revision_id: Optional[str] = None,
+    template_vals: Optional[Dict[str, str]] = None,
 ) -> None:
     output_folder = get_output_folder(output_parent_path or os.path.join(os.getcwd(), "migrations_out"))
     os.makedirs(output_folder)
-    run_upgrade(get_spark(), cat, schema, output_folder, migrations_dir, max_revision_id)
+    spark = get_spark()
+    run_upgrade(spark, output_folder, migrations_dir, max_revision_id, template_vals)
 
 
 def _cli_main(
-    cat: str, schema: str, migrations_dir: str, max_revision_id: Optional[str] = None
+    migrations_dir: str,
+    max_revision_id: Optional[str] = None,
+    template_vals: Optional[Dict[str, str]] = None,
 ) -> None:  # pragma: no cover
-    main(cat, schema, migrations_dir, max_revision_id=max_revision_id)
+    main(migrations_dir, max_revision_id=max_revision_id, template_vals=template_vals)
 
 
 def _cli_create_new_migration(
@@ -545,19 +548,44 @@ def _cli_history(migrations_dir: str, limit: Optional[int], oldest_first: bool) 
         print(line)
 
 
+def parse_template_vals(text: str) -> Dict[str, str]:
+    """`foo=bar,gee=wiz` -> {"foo": "bar", "gee": "wiz"}; the argparse `type` of --template-vals.
+
+    a key has to be usable as a jinja variable, so an identifier: one that is not would
+    render as nothing at all and the migration would go out silently missing it.
+    """
+    template_vals: Dict[str, str] = {}
+    for pair in text.split(","):
+        if not pair.strip():
+            continue
+        key, separator, value = pair.partition("=")
+        key = key.strip()
+        if not separator or not key.isidentifier():
+            raise argparse.ArgumentTypeError(f"expected key=value with an identifier key, got {pair!r};")
+        template_vals[key] = value.strip()
+    return template_vals
+
+
 def build_parser() -> argparse.ArgumentParser:  # pragma: no cover
     parser = argparse.ArgumentParser(description="spark_sql_migrations migration utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_run = subparsers.add_parser("run", help="upgrade to head/apply pending migrations")
-    p_run.add_argument("--cat", type=str, default="spark_catalog")
-    p_run.add_argument("--schema", type=str, default="default")
     p_run.add_argument("--migrations-dir", type=str, required=True, help="the directory holding the migration chain")
     p_run.add_argument(
         "--max-revision-id",
         type=str,
         default=None,
         help="apply the migration carrying this revision_id and stop; defaults to applying the chain to its head",
+    )
+    p_run.add_argument(
+        "--template-vals",
+        type=parse_template_vals,
+        default=None,
+        metavar="KEY=VALUE[,KEY=VALUE...]",
+        help="jinja render vars handed to every migration. is_dbr is always set from the engine and cannot be "
+        "overridden here. the whole thing is one argument, equal signs and all: "
+        "--template-vals=foo=bar,gee=wiz,pp=qq",
     )
     p_run.set_defaults(func=_cli_main)
 

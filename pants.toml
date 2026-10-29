@@ -20,6 +20,26 @@ resolves = { python-default = "spark_sql_migrations/python-default.lock", py-req
 [python-bootstrap]
 search_path = ["<PATH>", "<PYENV>"]
 
+# Pants ships its own tool lockfiles, so without these it would use its bundled
+# versions (e.g. isort 5.13.2) and silently ignore the pins in
+# requirements-dev.txt. install_from_resolve makes the gates run the exact
+# versions this repo pins, which is also what the pyenv venvs and the IDE use.
+[black]
+install_from_resolve = "py-reqs-dev"
+requirements = ["black"]
+
+[flake8]
+install_from_resolve = "py-reqs-dev"
+requirements = ["flake8"]
+
+[isort]
+install_from_resolve = "py-reqs-dev"
+requirements = ["isort"]
+
+[mypy]
+install_from_resolve = "py-reqs-dev"
+requirements = ["mypy"]
+
 [test]
 extra_env_vars = ["WHICH_SPARK", "SPARK_CONNECT_HOST", "SPARK_CONNECT_PORT", "PYTEST_TMP_BASE"]
 

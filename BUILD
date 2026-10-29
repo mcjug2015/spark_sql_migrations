@@ -32,14 +32,10 @@ python_distribution(
     },
     wheel=True,
     sdist=True,
-    # Pants reads the file itself and injects it as long_description, so README.md
-    # needs no dependency edge here. Without it the PyPI page renders empty.
-    long_description_path="README.md",
     provides=setup_py(
         name="spark_sql_migrations",
-        version="0.0.9",
+        version="0.1.0",
         description="Chained, idempotent SQL migrations for Spark and Databricks.",
-        long_description_content_type="text/markdown",
         author="Victor Semenov",
         # A bare SPDX string, deliberately without a "License :: OSI Approved ::"
         # classifier: setuptools>=77 treats this as a PEP 639 expression and

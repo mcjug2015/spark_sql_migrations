@@ -8,7 +8,6 @@ python_sources(
     name="lib",
     dependencies=[
         ":migration_templates",
-        ":migrations_initial",
         ":py_typed",
     ],
     # create_new_migration() writes a new .sql file relative to a caller-supplied
@@ -21,24 +20,18 @@ python_sources(
     name="lib_test",
     dependencies=[
         ":migration_templates",
-        ":migrations_initial",
         ":py_typed",
     ],
     resolve="py-reqs-dev",
 )
 
-# The initial chain and the default template ship inside the wheel: the library
-# owns them, and PackageLoader resolves them out of the installed package.
+# The default template ships inside the wheel: the library owns it, and
+# PackageLoader resolves it out of the installed package.
 # PEP 561 marker: without it mypy in a consuming project refuses to read our
 # annotations and reports every `import spark_sql_migrations` as import-untyped.
 resources(
     name="py_typed",
     sources=["py.typed"],
-)
-
-resources(
-    name="migrations_initial",
-    sources=["migrations_initial/*.sql"],
 )
 
 resources(
