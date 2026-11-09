@@ -80,8 +80,11 @@ class ChainSummary:
 
 
 def get_version_table_name(spark: SparkSession) -> str:
-    # only correct ar start of run
-    return f"{spark.catalog.currentCatalog()}.{spark.catalog.currentDatabase()}._spark_migrations_version"
+    # only correct at start of run
+    appendix = os.environ.get("VERSION_TABLE_NAME_APPENDIX", "")
+    if not re.compile(r"\w*", re.ASCII).fullmatch(appendix):
+        raise ValueError(f"VERSION_TABLE_NAME_APPENDIX must be word characters only, got {appendix!r};")
+    return f"{spark.catalog.currentCatalog()}.{spark.catalog.currentDatabase()}._spark_migrations_version{appendix}"
 
 
 def get_default_template_path() -> str:

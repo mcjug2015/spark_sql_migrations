@@ -25,6 +25,7 @@ from spark_sql_migrations.spark_sql.spark_sql import (
     get_output_folder,
     get_table_version,
     get_unapplied_migrations_list,
+    get_version_table_name,
     has_no_statements,
     history,
     main,
@@ -35,6 +36,13 @@ from spark_sql_migrations.spark_sql.spark_sql import (
     summarize_chain,
     upgrade,
 )
+
+
+def test_get_version_table_name_bad_appendix(monkeypatch):
+    monkeypatch.setenv("VERSION_TABLE_NAME_APPENDIX", "; drop table x")
+
+    with pytest.raises(ValueError, match="must be word characters only"):
+        get_version_table_name(mock.Mock())
 
 
 def test_get_default_template_path():
@@ -507,6 +515,12 @@ def test_parse_template_vals_bad_partition():
 
 def test_parse_template_vals():
     assert parse_template_vals(" a=b, m= n") == {"a": "b", "m": "n"}
+
+
+def test_get_version_table_name(test_spark, monkeypatch):
+    monkeypatch.setenv("VERSION_TABLE_NAME_APPENDIX", "_tested")
+
+    assert get_version_table_name(test_spark) == "spark_catalog.default._spark_migrations_version_tested"
 
 
 def test_get_table_version_no_table(test_spark):
