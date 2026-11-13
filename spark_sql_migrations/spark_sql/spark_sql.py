@@ -469,7 +469,7 @@ def run_upgrade(
     migrations_dir: str,
     max_revision_id: Optional[str] = None,
     template_vals: Optional[Dict[str, str]] = None,
-) -> None:
+) -> str:
     client_output_folder = os.path.join(output_folder, CLIENT_OUTPUT_DIRNAME)
     os.makedirs(client_output_folder, exist_ok=True)
     version_table_name = get_version_table_name(spark)
@@ -477,7 +477,9 @@ def run_upgrade(
         logger.info(f"{version_table_name} already exists;")
     else:
         spark.sql(f"create table if not exists {version_table_name}(version_num string not null);")
+    logger.info(f"Will be using version table:{version_table_name};")
     upgrade(spark, version_table_name, client_output_folder, migrations_dir, max_revision_id, template_vals)
+    return version_table_name
 
 
 def format_history_line(
