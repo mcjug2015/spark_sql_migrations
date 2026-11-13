@@ -43,11 +43,14 @@ def test_spark(_spark_connect_remote):
 
 
 @pytest.fixture
-def version_table(test_spark):
-    """an empty version table, dropped and recreated per test so order never matters."""
-    os.environ["VERSION_TABLE_NAME_APPENDIX"] = (
-        f"_{datetime.datetime.today().strftime('%Y%m%d_%H%M')}_{get_ascending_letters_within_minute()}"
+def version_table(test_spark, monkeypatch):
+    monkeypatch.setenv(
+        "VERSION_TABLE_NAME_APPENDIX",
+        f"_{datetime.datetime.today().strftime('%Y%m%d_%H%M')}_{get_ascending_letters_within_minute()}",
     )
     table_name = get_version_table_name(test_spark)
-    test_spark.sql(f"create table {table_name} (version_num string not null)")
-    yield table_name
+    try:
+        test_spark.sql(f"create table {table_name} (version_num string not null)")
+        yield table_name
+    finally:
+        test_spark.sql(f"drop table if exists {table_name}")
